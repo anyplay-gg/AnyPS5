@@ -2,7 +2,7 @@
 
 ### Functional
 
-- [sceNetCtlGetNatInfo and sceNetCtlGetResult](../../../core/libs/prx/libSceNetCtl/Export.cpp) - NAT discovery and service event results are not implemented and throw after native initialization and argument checks. NAT information is 16 bytes with a 32-bit size prefix; the remaining fields are unresolved.
+- [sceNetCtlGetNatInfo and sceNetCtlGetResult](../../../core/libs/prx/libSceNetCtl/Export.cpp) - NAT discovery and service event results are not implemented and throw after native initialization and argument checks. NAT information is 16 bytes with a 32-bit size prefix; the remaining fields are unresolved. With the [net bridge](../../../core/libs/prx/libSceNetCtl/src/NetBridge.cpp) on, `sceNetCtlGetNatInfo` writes `int32 stunStatus`, `int32 natType` and `in_addr mappedAddr` after the size, the layout [shadPS4](https://github.com/shadps4-emu/shadPS4/blob/bab374ba8ea1a1892a965020b0fc59f67553e108/src/core/libraries/network/netctl.h) gives its PS4 `OrbisNetCtlNatInfo` (`size`, `stun_status`, `nat_type`, `mapped_addr`, 0x10 bytes), not measured on a PS5: `stunStatus` is 1 for a NAT type of 1-3 and 0 while the net service reports none, and `mappedAddr` is the player's virtual address, which is an assumption. Closes when: measured on a PS5
 
 ### Unknown function info
 
@@ -14,6 +14,8 @@
 - [ApRp exports](../../../core/libs/prx/libSceNetCtl/Export.cpp) are constant-success functions in the supplied native module and consume no arguments. No callers were found in the supplied system-library decompilations, so unused callback, output and configuration argument types remain unresolved. Protected stub bodies are unchanged.
 
 ### Functional
+
+- [Net bridge](../../../core/libs/prx/libSceNetCtl/src/NetBridge.cpp) - the bridge to the net service (`ANYPS5_NET_ENDPOINT`, `ANYPS5_NET_TOKEN`) carries sign-in state, web requests and push filter announcements. Push events (0x0204), session signaling (0x03xx) and join intents (0x04xx) of the [bridge protocol](https://github.com/anyplay-gg/network/blob/main/spec/bridge-protocol.md) are skipped, so no push callback fires. The first use of the bridge waits up to 2 seconds for the first state. Closes when: push delivery, signaling and intents are implemented
 
 - [sceNetCtlCheckCallback](../../../core/libs/prx/libSceNetCtl/Export.cpp) - host address changes stand in for the native service event queues. IPv4 callbacks receive connected/disconnected transitions and an initial event; intermediate connection states and errors are not represented. Native CheckCallback drains both IPv4 and IPv6 queues, but the host backend never delivers IPv6 events. Dispatch copies slots before invoking callbacks, so unregistering concurrently may leave one callback in flight; native dispatch holds its registration lock. Slot limits, invalid/deleted IDs and the no-op Term follow the supplied module.
 - [libSceNetCtl initialization](../../../core/libs/prx/libSceNetCtl/Export.cpp) (libSceNetCtl) - the library starts initialized, as titles find it: it is the internal sysmodule `0x80000009`, and PPSA11386, PPSA20049, PPSA02530, PPSA14632 and PPSA15878 register and check NetCtl callbacks without importing `sceNetCtlInit`. PPSA11386 executes `int 0x42` at start-up unless `sceNetCtlRegisterCallback` returns 0. So the supplied module's `SCE_NET_CTL_ERROR_NOT_INITIALIZED` answers are unreachable, since Term is a no-op. Whether the console's process start or the module's start sets that state is not measured.

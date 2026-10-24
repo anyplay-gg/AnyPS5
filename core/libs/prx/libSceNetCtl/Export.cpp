@@ -26,6 +26,7 @@
 #include <cstring>
 #include "SceTypes.hpp"
 #include "prx/libc/include/General.hpp"
+#include "prx/libSceNetCtl/include/NetBridge.hpp"
 #include <fstream>
 #include <memory>
 #include <mutex>
@@ -87,6 +88,8 @@ static constexpr std::uint32_t NET_CTL_IP_DHCP = 0;
 static constexpr std::uint32_t NET_CTL_HTTP_PROXY_OFF = 0;
 static constexpr std::uint8_t NET_CTL_ETHER_ADDR[6] = {0x02, 0x50, 0x53, 0x35, 0x00, 0x01};
 static constexpr std::size_t NET_CTL_IPV4_ADDR_STR_LEN = 16;
+static constexpr std::int32_t NET_CTL_NAT_STUN_FAILED = 0;
+static constexpr std::int32_t NET_CTL_NAT_STUN_OK = 1;
 static constexpr int MAX_CALLBACKS = 8;
 
 struct CallbackSlot {
@@ -578,6 +581,22 @@ int APS5_VABI sceNetCtlGetNatInfo(NetCtlNatInfo* info) {
     if (!g_initialized.load()) return SCE_NET_CTL_ERROR_NOT_INITIALIZED;
     if (!info) return SCE_NET_CTL_ERROR_INVALID_ADDR;
     if (info->size != sizeof(NetCtlNatInfo)) return SCE_NET_CTL_ERROR_INVALID_SIZE;
+    if (NetBridgeEnabled_nid_no_patch() != 0) {
+        NetBridgeStateView view{};
+        NetBridgeState_nid_no_patch(&view);
+        const std::int32_t stunStatus = view.natType != 0 ? NET_CTL_NAT_STUN_OK : NET_CTL_NAT_STUN_FAILED;
+        const std::int32_t natType = view.natType;
+        const std::uint8_t mappedAddress[4] = {static_cast<std::uint8_t>(view.address >> 24), static_cast<std::uint8_t>(view.address >> 16), static_cast<std::uint8_t>(view.address >> 8), static_cast<std::uint8_t>(view.address)};
+        std::memcpy(info->opaque, &stunStatus, sizeof(stunStatus));
+        std::memcpy(info->opaque + 4, &natType, sizeof(natType));
+        std::memcpy(info->opaque + 8, mappedAddress, sizeof(mappedAddress));
+        NetBridgeRecord("libSceNetCtl", "sceNetCtlGetNatInfo", true, 0, [&](NetBridgeJson& in, NetBridgeJson& out) {
+            in.Uint("size", info->size);
+            out.Int("stun_status", stunStatus).Int("nat_type", natType).Uint("mapped_addr", view.address);
+        });
+        return 0;
+    }
+    NetBridgeRecord("libSceNetCtl", "sceNetCtlGetNatInfo", false, 0, [&](NetBridgeJson& in, NetBridgeJson&) { in.Uint("size", info->size); });
     throw std::logic_error("sceNetCtlGetNatInfo: NAT discovery is not implemented");
 }
 
