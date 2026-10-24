@@ -5,6 +5,7 @@
 #include <atomic>
 #include <cstring>
 #include "prx/libSceUserService/UserService.hpp"
+#include "prx/libSceNetCtl/include/NetBridge.hpp"
 
 static std::atomic<bool> initialized{false};
 static std::atomic<bool> loginReported{false};
@@ -268,7 +269,15 @@ int APS5_VABI sceUserServiceGetNpAccountId(int user_id, uint64_t* account_id) {
  if (account_id == nullptr || user_id != USER_SERVICE_INITIAL_USER_ID) {
   return USER_SERVICE_ERROR_INVALID_ARGUMENT;
  }
- *account_id = 0;
+ NetBridgeStateView view{};
+ if (NetBridgeEnabled_nid_no_patch() != 0) {
+  NetBridgeState_nid_no_patch(&view);
+ }
+ *account_id = view.signedIn != 0 ? view.accountId : 0;
+ NetBridgeRecord("libSceUserService", "sceUserServiceGetNpAccountId", true, USER_SERVICE_OK, [&](NetBridgeJson& in, NetBridgeJson& out) {
+  in.Int("user_id", user_id);
+  out.Uint("account_id", *account_id);
+ });
  return USER_SERVICE_OK;
 }
 

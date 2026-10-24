@@ -3,9 +3,12 @@
 #include "SceTypes.hpp"
 #include "prx/libc/include/General.hpp"
 #include "prx/libSceUserService/UserService.hpp"
+#include "prx/libSceNetCtl/include/NetBridge.hpp"
 #include <array>
 #include <atomic>
+#include <cstring>
 #include <mutex>
+#include <unordered_map>
 #include <unordered_set>
 
 // PSN is not emulated: the user is reported as signed out and online queries fail.
@@ -18,6 +21,8 @@ static constexpr int SCE_NP_ERROR_INVALID_SIZE = static_cast<int>(0x80550011);
 static constexpr int SCE_NP_ERROR_REQUEST_NOT_FOUND = static_cast<int>(0x80550014);
 static constexpr int SCE_NP_ERROR_CALLBACK_MAX = static_cast<int>(0x8055001D);
 static constexpr uint32_t NP_STATE_SIGNED_OUT = 1;
+static constexpr uint32_t NP_STATE_SIGNED_IN = 2;
+static constexpr char NP_LIBRARY[] = "libSceNpManager";
 static constexpr int NP_POLL_ASYNC_FINISHED = 0;
 static constexpr uint32_t NP_REACHABILITY_STATE_UNAVAILABLE = 0;
 static constexpr uint32_t NP_GAME_PRESENCE_STATUS_OFFLINE = 0;
@@ -30,6 +35,51 @@ void* reachabilityCallback = nullptr;
 void* reachabilityUserdata = nullptr;
 std::mutex requestMutex;
 std::unordered_set<int> liveRequests;
+std::unordered_map<int, int> requestResults;
+
+bool BridgeSignedIn(int userId, NetBridgeStateView& view) {
+    if (userId != USER_SERVICE_INITIAL_USER_ID || NetBridgeEnabled_nid_no_patch() == 0) return false;
+    NetBridgeState_nid_no_patch(&view);
+    return view.signedIn != 0;
+}
+
+void FillOnlineId(NpOnlineId& onlineId, const NetBridgeStateView& view) {
+    std::memset(&onlineId, 0, sizeof(onlineId));
+    std::memcpy(onlineId.data, view.handle, sizeof(onlineId.data) - 1);
+}
+
+void FillNpId(NpId& npId, const NetBridgeStateView& view) {
+    std::memset(&npId, 0, sizeof(npId));
+    FillOnlineId(npId.online_id, view);
+}
+
+int GrantOnline(const char* fn, int reqId, bool argumentsValid, std::uint8_t* result, std::size_t resultSize) {
+    NetBridgeStateView view{};
+    bool signedIn = false;
+    if (NetBridgeEnabled_nid_no_patch() != 0) {
+        NetBridgeState_nid_no_patch(&view);
+        signedIn = view.signedIn != 0;
+    }
+    int ret = SCE_NP_ERROR_SIGNED_OUT;
+    if (signedIn && !argumentsValid) {
+        ret = SCE_NP_ERROR_INVALID_ARGUMENT;
+    } else if (signedIn) {
+        std::lock_guard lock(requestMutex);
+        if (!liveRequests.count(reqId)) {
+            ret = SCE_NP_ERROR_REQUEST_NOT_FOUND;
+        } else {
+            requestResults[reqId] = 0;
+            std::memset(result, 0, resultSize);
+            result[0] = 1;
+            ret = 0;
+        }
+    }
+    NetBridgeRecord(NP_LIBRARY, fn, true, ret, [&](NetBridgeJson& in, NetBridgeJson& out) {
+        in.Int("req_id", reqId);
+        if (ret == 0) out.Bool("authorized", true);
+    });
+    return ret;
+}
 
 int AddRequest() {
     const int reqId = g_nextRequest.fetch_add(1, std::memory_order_relaxed);
@@ -64,6 +114,7 @@ struct StateCallback {
 std::mutex stateMutex;
 std::array<StateCallbackA, NP_STATE_CALLBACK_MAX> stateCallbacksA;
 StateCallback stateCallback;
+std::uint64_t deliveredStateChanges = 0;
 }
 
 extern "C" {
@@ -678,18 +729,42 @@ int APS5_VABI sceNpAbortRequest(int req_id) {
 }
 
 int APS5_VABI sceNpCheckCallback(void) {
+    NetBridgeStateView view{};
+    std::uint64_t changes = 0;
+    const bool bridge = NetBridgeEnabled_nid_no_patch() != 0;
+    if (bridge) changes = NetBridgeState_nid_no_patch(&view);
+    const bool signedIn = bridge && view.signedIn != 0;
+    const uint32_t state = signedIn ? NP_STATE_SIGNED_IN : NP_STATE_SIGNED_OUT;
+    NpId npId{};
+    if (signedIn) FillNpId(npId, view);
     std::array<StateCallbackA, NP_STATE_CALLBACK_MAX> callbacksA;
     StateCallback legacy;
     {
         std::lock_guard lock(stateMutex);
+        if (bridge && changes != deliveredStateChanges) {
+            deliveredStateChanges = changes;
+            for (auto& entry : stateCallbacksA) entry.pending = entry.pending || entry.callback != nullptr;
+            stateCallback.pending = stateCallback.pending || stateCallback.callback != nullptr;
+        }
         callbacksA = stateCallbacksA;
         legacy = stateCallback;
         for (auto& entry : stateCallbacksA) entry.pending = false;
         stateCallback.pending = false;
     }
-    if (legacy.pending) legacy.callback(USER_SERVICE_INITIAL_USER_ID, NP_STATE_SIGNED_OUT, nullptr, legacy.userdata);
+    if (legacy.pending) {
+        legacy.callback(USER_SERVICE_INITIAL_USER_ID, state, signedIn ? &npId : nullptr, legacy.userdata);
+        NetBridgeRecord(NP_LIBRARY, "sceNpCheckCallback", false, 0, [&](NetBridgeJson& in, NetBridgeJson& out) {
+            in.Text("callback", "state");
+            out.Int("user_id", USER_SERVICE_INITIAL_USER_ID).Uint("state", state);
+        });
+    }
     for (const auto& entry : callbacksA) {
-        if (entry.pending) entry.callback(USER_SERVICE_INITIAL_USER_ID, NP_STATE_SIGNED_OUT, entry.userdata);
+        if (!entry.pending) continue;
+        entry.callback(USER_SERVICE_INITIAL_USER_ID, state, entry.userdata);
+        NetBridgeRecord(NP_LIBRARY, "sceNpCheckCallback", false, 0, [&](NetBridgeJson& in, NetBridgeJson& out) {
+            in.Text("callback", "stateA");
+            out.Int("user_id", USER_SERVICE_INITIAL_USER_ID).Uint("state", state);
+        });
     }
     return 0;
 }
@@ -707,9 +782,10 @@ int APS5_VABI sceNpCheckNpReachability(int req_id, int user_id) {
 }
 
 int APS5_VABI sceNpCheckPremium(int req_id, const NpCheckPremiumParameter* param, NpCheckPremiumResult* result) {
-    (void)req_id;
-    (void)param;
-    (void)result;
+    if (NetBridgeEnabled_nid_no_patch() != 0) {
+        return GrantOnline("sceNpCheckPremium", req_id, req_id != 0 && param != nullptr && result != nullptr, result != nullptr ? result->opaque : nullptr, sizeof(result->opaque));
+    }
+    NetBridgeRecord(NP_LIBRARY, "sceNpCheckPremium", true, SCE_NP_ERROR_SIGNED_OUT, [&](NetBridgeJson& in, NetBridgeJson&) { in.Int("req_id", req_id); });
     return SCE_NP_ERROR_SIGNED_OUT;
 }
 
@@ -725,6 +801,7 @@ int APS5_VABI sceNpCreateRequest(void) {
 int APS5_VABI sceNpDeleteRequest(int req_id) {
     std::lock_guard lock(requestMutex);
     liveRequests.erase(req_id);
+    requestResults.erase(req_id);
     return 0;
 }
 
@@ -764,11 +841,19 @@ int APS5_VABI sceNpGetUserIdByOnlineId(const NpOnlineId* online_id, int* user_id
 
 int APS5_VABI sceNpCheckPlus(int req_id, const void* param, void* result) {
     if (req_id == 0 || !param || !result) return SCE_NP_ERROR_INVALID_ARGUMENT;
+    if (NetBridgeEnabled_nid_no_patch() != 0) return GrantOnline("sceNpCheckPlus", req_id, true, static_cast<std::uint8_t*>(result), 1);
+    NetBridgeRecord(NP_LIBRARY, "sceNpCheckPlus", true, SCE_NP_ERROR_SIGNED_OUT, [&](NetBridgeJson& in, NetBridgeJson&) { in.Int("req_id", req_id); });
     return SCE_NP_ERROR_SIGNED_OUT;
 }
 
 int APS5_VABI sceNpNotifyPlusFeature(const void* param) {
-    (void)param;
+    if (NetBridgeEnabled_nid_no_patch() != 0) {
+        if (!param) return SCE_NP_ERROR_INVALID_ARGUMENT;
+        NetBridgeFeature_nid_no_patch(-1, 0);
+        NetBridgeRecord(NP_LIBRARY, "sceNpNotifyPlusFeature", true, 0, [&](NetBridgeJson& in, NetBridgeJson&) { in.Bool("param_null", false); });
+        return 0;
+    }
+    NetBridgeRecord(NP_LIBRARY, "sceNpNotifyPlusFeature", false, 0, [&](NetBridgeJson& in, NetBridgeJson&) { in.Bool("param_null", param == nullptr); });
     NotImplemented_nid_no_patch(__func__);
     return 0;
 }
@@ -795,15 +880,32 @@ int APS5_VABI sceNpGetAccountCountryA(int user_id, void* country_code) {
 }
 
 int APS5_VABI sceNpGetAccountIdA(int user_id, uint64_t* account_id) {
-    (void)user_id;
-    (void)account_id;
-    return SCE_NP_ERROR_SIGNED_OUT;
+    NetBridgeStateView view{};
+    int ret = SCE_NP_ERROR_SIGNED_OUT;
+    if (BridgeSignedIn(user_id, view)) {
+        ret = account_id != nullptr ? 0 : SCE_NP_ERROR_INVALID_ARGUMENT;
+        if (ret == 0) *account_id = view.accountId;
+    }
+    NetBridgeRecord(NP_LIBRARY, "sceNpGetAccountIdA", true, ret, [&](NetBridgeJson& in, NetBridgeJson& out) {
+        in.Int("user_id", user_id);
+        if (ret == 0) out.Uint("account_id", view.accountId);
+    });
+    return ret;
 }
 
 int APS5_VABI sceNpGetNpId(int user_id, NpId* np_id) {
-    (void)user_id;
     if (!np_id) return SCE_NP_ERROR_INVALID_ARGUMENT;
-    return SCE_NP_ERROR_SIGNED_OUT;
+    NetBridgeStateView view{};
+    int ret = SCE_NP_ERROR_SIGNED_OUT;
+    if (BridgeSignedIn(user_id, view)) {
+        FillNpId(*np_id, view);
+        ret = 0;
+    }
+    NetBridgeRecord(NP_LIBRARY, "sceNpGetNpId", true, ret, [&](NetBridgeJson& in, NetBridgeJson& out) {
+        in.Int("user_id", user_id);
+        if (ret == 0) out.Text("online_id", np_id->online_id.data);
+    });
+    return ret;
 }
 
 int APS5_VABI sceNpGetNpReachabilityState(int user_id, uint32_t* state) {
@@ -814,15 +916,28 @@ int APS5_VABI sceNpGetNpReachabilityState(int user_id, uint32_t* state) {
 }
 
 int APS5_VABI sceNpGetOnlineId(int user_id, NpOnlineId* online_id) {
-    (void)user_id;
     if (!online_id) return SCE_NP_ERROR_INVALID_ARGUMENT;
-    return SCE_NP_ERROR_SIGNED_OUT;
+    NetBridgeStateView view{};
+    int ret = SCE_NP_ERROR_SIGNED_OUT;
+    if (BridgeSignedIn(user_id, view)) {
+        FillOnlineId(*online_id, view);
+        ret = 0;
+    }
+    NetBridgeRecord(NP_LIBRARY, "sceNpGetOnlineId", true, ret, [&](NetBridgeJson& in, NetBridgeJson& out) {
+        in.Int("user_id", user_id);
+        if (ret == 0) out.Text("online_id", online_id->data);
+    });
+    return ret;
 }
 
 int APS5_VABI sceNpGetState(int user_id, uint32_t* state) {
-    (void)user_id;
     if (!state) return SCE_NP_ERROR_INVALID_ARGUMENT;
-    *state = NP_STATE_SIGNED_OUT;
+    NetBridgeStateView view{};
+    *state = BridgeSignedIn(user_id, view) ? NP_STATE_SIGNED_IN : NP_STATE_SIGNED_OUT;
+    NetBridgeRecord(NP_LIBRARY, "sceNpGetState", true, 0, [&](NetBridgeJson& in, NetBridgeJson& out) {
+        in.Int("user_id", user_id);
+        out.Uint("state", *state);
+    });
     return 0;
 }
 
@@ -834,8 +949,17 @@ int APS5_VABI sceNpHasSignedUp(int user_id, bool* has_signed_up) {
 }
 
 int APS5_VABI sceNpPollAsync(int req_id, int* result) {
-    (void)req_id;
-    if (result) *result = SCE_NP_ERROR_SIGNED_OUT;
+    int value = SCE_NP_ERROR_SIGNED_OUT;
+    {
+        std::lock_guard lock(requestMutex);
+        const auto found = requestResults.find(req_id);
+        if (found != requestResults.end()) value = found->second;
+    }
+    if (result) *result = value;
+    NetBridgeRecord(NP_LIBRARY, "sceNpPollAsync", true, NP_POLL_ASYNC_FINISHED, [&](NetBridgeJson& in, NetBridgeJson& out) {
+        in.Int("req_id", req_id);
+        out.Int("result", value);
+    });
     return NP_POLL_ASYNC_FINISHED;
 }
 

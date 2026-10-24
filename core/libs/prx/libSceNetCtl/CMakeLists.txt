@@ -1,4 +1,8 @@
-add_library(libSceNetCtl SHARED EXCLUDE_FROM_ALL Export.cpp)
+add_library(libSceNetCtl SHARED EXCLUDE_FROM_ALL
+        Export.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/NetBridge.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/NetBridgeObserve.cpp
+)
 target_include_directories(libSceNetCtl PRIVATE ${LIBS_INCLUDE_DIR})
 configure_windows_unwind(libSceNetCtl)
 
@@ -14,4 +18,32 @@ if(BUILD_TESTING)
         set_tests_properties(guest_net_ctl PROPERTIES ENVIRONMENT_MODIFICATION
             "PATH=path_list_prepend:$<TARGET_FILE_DIR:libSceNetCtl>")
     endif()
+
+    add_test_executable(net_bridge_tests ${CMAKE_CURRENT_SOURCE_DIR}/tests/NetBridge.cpp)
+    target_include_directories(net_bridge_tests PRIVATE ${LIBS_INCLUDE_DIR})
+    target_link_libraries(net_bridge_tests PRIVATE libSceNetCtl libc)
+    configure_windows_unwind(net_bridge_tests)
+    add_test(NAME net_bridge COMMAND net_bridge_tests)
+    set_tests_properties(net_bridge PROPERTIES TIMEOUT 20)
+    if(WIN32)
+        target_link_libraries(net_bridge_tests PRIVATE ws2_32)
+        set_tests_properties(net_bridge PROPERTIES ENVIRONMENT_MODIFICATION
+            "PATH=path_list_prepend:$<TARGET_FILE_DIR:libSceNetCtl>")
+    endif()
+
+    add_test_executable(net_bridge_off_tests ${CMAKE_CURRENT_SOURCE_DIR}/tests/NetBridgeOff.cpp)
+    target_include_directories(net_bridge_off_tests PRIVATE ${LIBS_INCLUDE_DIR})
+    target_link_libraries(net_bridge_off_tests PRIVATE libSceNetCtl libc)
+    configure_windows_unwind(net_bridge_off_tests)
+    if(WIN32)
+        target_link_libraries(net_bridge_off_tests PRIVATE ws2_32)
+    endif()
+    foreach(mode IN ITEMS none endpoint_only token_only remote_host other_loopback hostname port_zero port_too_large port_text uppercase_token odd_token empty_token observe_only)
+        add_test(NAME net_bridge_off_${mode} COMMAND net_bridge_off_tests ${mode})
+        set_tests_properties(net_bridge_off_${mode} PROPERTIES TIMEOUT 20)
+        if(WIN32)
+            set_tests_properties(net_bridge_off_${mode} PROPERTIES ENVIRONMENT_MODIFICATION
+                "PATH=path_list_prepend:$<TARGET_FILE_DIR:libSceNetCtl>")
+        endif()
+    endforeach()
 endif()

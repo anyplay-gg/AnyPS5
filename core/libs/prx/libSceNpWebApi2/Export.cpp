@@ -2,11 +2,18 @@
 #include <cstddef>
 #include "SceTypes.hpp"
 #include "prx/libc/include/General.hpp"
+#include "prx/libSceNetCtl/include/NetBridge.hpp"
+#include <algorithm>
+#include <cctype>
 #include <atomic>
+#include <climits>
 #include <cstring>
 #include <mutex>
 #include <stdexcept>
+#include <string>
 #include <unordered_map>
+#include <utility>
+#include <vector>
 
 // The PSN web API has no service behind it: handles can be created, but requests fail.
 static constexpr int SCE_NP_WEBAPI2_ERROR_INVALID_ARGUMENT = static_cast<int>(0x80553402);
@@ -48,6 +55,73 @@ struct PushHandle {
 
 static std::unordered_map<int, PushHandle> pushHandles;
 
+namespace {
+
+constexpr char WEB_API_LIBRARY[] = "libSceNpWebApi2";
+constexpr std::size_t MAX_TRACKED_USER_CONTEXTS = 256;
+constexpr std::size_t MAX_TRACKED_REQUESTS = 256;
+constexpr std::size_t MAX_REQUEST_HEADERS = 64;
+constexpr std::size_t MAX_WIRE_STRING = 0xFFFF;
+constexpr std::uint64_t MAX_REQUEST_BODY = 8ull * 1024 * 1024;
+constexpr std::uint64_t MAX_RETAINED_REPLY_BYTES = 64ull * 1024 * 1024;
+
+struct TrackedRequest {
+    bool userKnown = false;
+    bool complete = true;
+    int userId = 0;
+    std::string apiGroup;
+    std::string path;
+    std::string method;
+    std::vector<std::pair<std::string, std::string>> headers;
+    bool hasReply = false;
+    NetBridgeWebReplyView reply{};
+    std::size_t readOffset = 0;
+};
+
+std::mutex g_webMutex;
+std::unordered_map<int, int> g_userContextUsers;
+std::unordered_map<std::int64_t, TrackedRequest> g_trackedRequests;
+std::uint64_t g_retainedReplyBytes = 0;
+
+bool Tracking() {
+    return NetBridgeEnabled_nid_no_patch() != 0 || NetBridgeObserveEnabled_nid_no_patch() != 0;
+}
+
+bool AssignWireString(const char* source, std::string& target) {
+    if (source == nullptr) return false;
+    std::size_t length = 0;
+    while (source[length] != '\0' && length <= MAX_WIRE_STRING) ++length;
+    if (length > MAX_WIRE_STRING) return false;
+    target.assign(source, length);
+    return true;
+}
+
+void ReleaseReply(TrackedRequest& request) {
+    if (!request.hasReply) return;
+    g_retainedReplyBytes -= request.reply.bodySize;
+    NetBridgeWebReplyRelease_nid_no_patch(&request.reply);
+    request.hasReply = false;
+    request.readOffset = 0;
+}
+
+bool SameHeaderName(const char* left, const char* right) {
+    for (; *left != '\0' && *right != '\0'; ++left, ++right) {
+        const auto a = static_cast<unsigned char>(*left);
+        const auto b = static_cast<unsigned char>(*right);
+        if (std::tolower(a) != std::tolower(b)) return false;
+    }
+    return *left == *right;
+}
+
+const char* FindReplyHeader(const TrackedRequest& request, const char* name) {
+    for (std::uint32_t index = 0; index < request.reply.headerCount; ++index) {
+        if (SameHeaderName(request.reply.headerNames[index], name)) return request.reply.headerValues[index];
+    }
+    return nullptr;
+}
+
+}
+
 extern "C" {
 
 int APS5_VABI sceNpWebApi2AbortRequest(int64_t request_id) {
@@ -56,10 +130,27 @@ int APS5_VABI sceNpWebApi2AbortRequest(int64_t request_id) {
 }
 
 int APS5_VABI sceNpWebApi2AddHttpRequestHeader(int64_t request_id, const char* field_name, const char* value) {
-    (void)request_id;
-    (void)field_name;
-    (void)value;
-    return 0;
+    int ret = 0;
+    if (Tracking()) {
+        const bool bridge = NetBridgeEnabled_nid_no_patch() != 0;
+        std::lock_guard lock(g_webMutex);
+        const auto found = g_trackedRequests.find(request_id);
+        if (found != g_trackedRequests.end()) {
+            std::string name;
+            std::string content;
+            if (field_name == nullptr || value == nullptr) {
+                if (bridge) ret = SCE_NP_WEBAPI2_ERROR_INVALID_ARGUMENT;
+            } else if (!AssignWireString(field_name, name) || !AssignWireString(value, content) || found->second.headers.size() >= MAX_REQUEST_HEADERS) {
+                found->second.complete = false;
+            } else {
+                found->second.headers.emplace_back(std::move(name), std::move(content));
+            }
+        }
+    }
+    NetBridgeRecord(WEB_API_LIBRARY, "sceNpWebApi2AddHttpRequestHeader", true, ret, [&](NetBridgeJson& in, NetBridgeJson&) {
+        in.Int("request_id", request_id).Text("field_name", field_name).Text("value", value);
+    });
+    return ret;
 }
 
 int APS5_VABI sceNpWebApi2AddWebTraceTag(std::int64_t requestId, const char* value) {
@@ -72,45 +163,111 @@ void APS5_VABI sceNpWebApi2CheckTimeout(void) {
 }
 
 int APS5_VABI sceNpWebApi2CreateRequest(int user_context_id, const char* api_group, const char* path, const char* method, const void* content_parameter, int64_t* request_id) {
-    (void)user_context_id;
-    (void)api_group;
-    (void)path;
-    (void)method;
     (void)content_parameter;
     if (!request_id) return SCE_NP_WEBAPI2_ERROR_INVALID_ARGUMENT;
     *request_id = g_nextHandle.fetch_add(1, std::memory_order_relaxed);
+    if (Tracking()) {
+        TrackedRequest entry;
+        entry.complete = AssignWireString(api_group, entry.apiGroup) && AssignWireString(path, entry.path) && AssignWireString(method, entry.method);
+        std::lock_guard lock(g_webMutex);
+        const auto user = g_userContextUsers.find(user_context_id);
+        if (user != g_userContextUsers.end()) {
+            entry.userKnown = true;
+            entry.userId = user->second;
+        }
+        if (g_trackedRequests.size() < MAX_TRACKED_REQUESTS) g_trackedRequests.emplace(*request_id, std::move(entry));
+    }
+    NetBridgeRecord(WEB_API_LIBRARY, "sceNpWebApi2CreateRequest", true, 0, [&](NetBridgeJson& in, NetBridgeJson& out) {
+        in.Int("user_context_id", user_context_id).Text("api_group", api_group).Text("path", path).Text("method", method);
+        out.Int("request_id", *request_id);
+    });
     return 0;
 }
 
 int APS5_VABI sceNpWebApi2CreateUserContext(int lib_ctx_id, int user_id) {
-    (void)lib_ctx_id;
-    (void)user_id;
-    return g_nextHandle.fetch_add(1, std::memory_order_relaxed);
+    const int userContextId = g_nextHandle.fetch_add(1, std::memory_order_relaxed);
+    if (Tracking()) {
+        std::lock_guard lock(g_webMutex);
+        if (g_userContextUsers.size() < MAX_TRACKED_USER_CONTEXTS) g_userContextUsers[userContextId] = user_id;
+    }
+    NetBridgeRecord(WEB_API_LIBRARY, "sceNpWebApi2CreateUserContext", true, userContextId, [&](NetBridgeJson& in, NetBridgeJson&) {
+        in.Int("lib_ctx_id", lib_ctx_id).Int("user_id", user_id);
+    });
+    return userContextId;
 }
 
 int APS5_VABI sceNpWebApi2DeleteRequest(int64_t request_id) {
-    (void)request_id;
+    {
+        std::lock_guard lock(g_webMutex);
+        const auto found = g_trackedRequests.find(request_id);
+        if (found != g_trackedRequests.end()) {
+            ReleaseReply(found->second);
+            g_trackedRequests.erase(found);
+        }
+    }
+    NetBridgeRecord(WEB_API_LIBRARY, "sceNpWebApi2DeleteRequest", true, 0, [&](NetBridgeJson& in, NetBridgeJson&) { in.Int("request_id", request_id); });
     return 0;
 }
 
 int APS5_VABI sceNpWebApi2DeleteUserContext(int user_context_id) {
-    (void)user_context_id;
+    {
+        std::lock_guard lock(g_webMutex);
+        g_userContextUsers.erase(user_context_id);
+    }
+    NetBridgeRecord(WEB_API_LIBRARY, "sceNpWebApi2DeleteUserContext", true, 0, [&](NetBridgeJson& in, NetBridgeJson&) { in.Int("user_context_id", user_context_id); });
     return 0;
 }
 
 int APS5_VABI sceNpWebApi2GetHttpResponseHeaderValue(int64_t request_id, const char* field_name, char* value, size_t value_size) {
-    (void)request_id;
-    (void)field_name;
-    (void)value;
-    (void)value_size;
-    return SCE_NP_WEBAPI2_ERROR_UNAVAILABLE;
+    int ret = SCE_NP_WEBAPI2_ERROR_UNAVAILABLE;
+    std::string found;
+    if (NetBridgeEnabled_nid_no_patch() != 0) {
+        std::lock_guard lock(g_webMutex);
+        const auto request = g_trackedRequests.find(request_id);
+        if (request != g_trackedRequests.end() && request->second.hasReply) {
+            if (field_name == nullptr || value == nullptr) {
+                ret = SCE_NP_WEBAPI2_ERROR_INVALID_ARGUMENT;
+            } else if (const char* header = FindReplyHeader(request->second, field_name)) {
+                const std::size_t length = std::strlen(header);
+                if (value_size < length) {
+                    ret = SCE_NP_WEBAPI2_ERROR_INVALID_ARGUMENT;
+                } else {
+                    std::memcpy(value, header, length);
+                    if (value_size > length) value[length] = '\0';
+                    found.assign(header, length);
+                    ret = 0;
+                }
+            }
+        }
+    }
+    NetBridgeRecord(WEB_API_LIBRARY, "sceNpWebApi2GetHttpResponseHeaderValue", true, ret, [&](NetBridgeJson& in, NetBridgeJson& out) {
+        in.Int("request_id", request_id).Text("field_name", field_name).Uint("value_size", value_size);
+        if (ret == 0) out.Text("value", found);
+    });
+    return ret;
 }
 
 int APS5_VABI sceNpWebApi2GetHttpResponseHeaderValueLength(int64_t request_id, const char* field_name, size_t* value_length) {
-    (void)request_id;
-    (void)field_name;
-    (void)value_length;
-    return SCE_NP_WEBAPI2_ERROR_UNAVAILABLE;
+    int ret = SCE_NP_WEBAPI2_ERROR_UNAVAILABLE;
+    std::size_t length = 0;
+    if (NetBridgeEnabled_nid_no_patch() != 0) {
+        std::lock_guard lock(g_webMutex);
+        const auto request = g_trackedRequests.find(request_id);
+        if (request != g_trackedRequests.end() && request->second.hasReply) {
+            if (field_name == nullptr || value_length == nullptr) {
+                ret = SCE_NP_WEBAPI2_ERROR_INVALID_ARGUMENT;
+            } else if (const char* header = FindReplyHeader(request->second, field_name)) {
+                length = std::strlen(header);
+                *value_length = length;
+                ret = 0;
+            }
+        }
+    }
+    NetBridgeRecord(WEB_API_LIBRARY, "sceNpWebApi2GetHttpResponseHeaderValueLength", true, ret, [&](NetBridgeJson& in, NetBridgeJson& out) {
+        in.Int("request_id", request_id).Text("field_name", field_name);
+        if (ret == 0) out.Uint("value_length", length);
+    });
+    return ret;
 }
 
 int APS5_VABI sceNpWebApi2Initialize(int lib_http_ctx_id, size_t pool_size) {
@@ -129,13 +286,13 @@ int APS5_VABI sceNpWebApi2GetMemoryPoolStats(int libraryContextId, NpWebApi2Memo
 }
 
 int APS5_VABI sceNpWebApi2PushEventCreateFilter(int lib_ctx_id, int handle_id, const char* np_service_name, uint32_t np_service_label, const void* filter_param, size_t filter_param_num) {
-    (void)lib_ctx_id;
-    (void)handle_id;
-    (void)np_service_name;
-    (void)np_service_label;
-    (void)filter_param;
-    (void)filter_param_num;
-    return g_nextHandle.fetch_add(1, std::memory_order_relaxed);
+    const int filterId = g_nextHandle.fetch_add(1, std::memory_order_relaxed);
+    if (NetBridgeEnabled_nid_no_patch() != 0) NetBridgePushFilter_nid_no_patch(-1, static_cast<std::uint32_t>(filterId), nullptr, 0);
+    NetBridgeRecord(WEB_API_LIBRARY, "sceNpWebApi2PushEventCreateFilter", true, filterId, [&](NetBridgeJson& in, NetBridgeJson&) {
+        in.Int("lib_ctx_id", lib_ctx_id).Int("handle_id", handle_id).Text("np_service_name", np_service_name).Uint("np_service_label", np_service_label);
+        in.Bool("filter_param_null", filter_param == nullptr).Uint("filter_param_num", filter_param_num);
+    });
+    return filterId;
 }
 
 int APS5_VABI sceNpWebApi2PushEventCreateHandle(int libraryContextId) {
@@ -171,26 +328,120 @@ int APS5_VABI sceNpWebApi2PushEventDeletePushContext(int user_context_id, const 
 }
 
 int APS5_VABI sceNpWebApi2PushEventRegisterCallback(int user_context_id, int filter_id, void* callback, void* user_arg) {
-    (void)user_context_id;
-    (void)filter_id;
-    (void)callback;
     (void)user_arg;
-    return g_nextHandle.fetch_add(1, std::memory_order_relaxed);
+    const int callbackId = g_nextHandle.fetch_add(1, std::memory_order_relaxed);
+    NetBridgeRecord(WEB_API_LIBRARY, "sceNpWebApi2PushEventRegisterCallback", true, callbackId, [&](NetBridgeJson& in, NetBridgeJson&) {
+        in.Int("user_context_id", user_context_id).Int("filter_id", filter_id).Bool("callback_null", callback == nullptr);
+    });
+    return callbackId;
 }
 
 int APS5_VABI sceNpWebApi2ReadData(int64_t request_id, void* data, size_t size) {
-    (void)request_id;
-    (void)data;
-    (void)size;
-    return SCE_NP_WEBAPI2_ERROR_UNAVAILABLE;
+    int ret = SCE_NP_WEBAPI2_ERROR_UNAVAILABLE;
+    std::string received;
+    if (NetBridgeEnabled_nid_no_patch() != 0) {
+        std::lock_guard lock(g_webMutex);
+        const auto request = g_trackedRequests.find(request_id);
+        if (request != g_trackedRequests.end() && request->second.hasReply) {
+            TrackedRequest& tracked = request->second;
+            if (data == nullptr && size != 0) {
+                ret = SCE_NP_WEBAPI2_ERROR_INVALID_ARGUMENT;
+            } else {
+                const std::size_t remaining = static_cast<std::size_t>(tracked.reply.bodySize) - tracked.readOffset;
+                const std::size_t count = std::min<std::size_t>({size, remaining, static_cast<std::size_t>(INT_MAX)});
+                if (count != 0) std::memcpy(data, tracked.reply.body + tracked.readOffset, count);
+                received.assign(reinterpret_cast<const char*>(tracked.reply.body) + tracked.readOffset, count);
+                tracked.readOffset += count;
+                ret = static_cast<int>(count);
+            }
+        }
+    }
+    NetBridgeRecord(WEB_API_LIBRARY, "sceNpWebApi2ReadData", true, ret, [&](NetBridgeJson& in, NetBridgeJson& out) {
+        in.Int("request_id", request_id).Uint("size", size);
+        if (ret >= 0) out.Bytes("data", received.data(), received.size());
+    });
+    return ret;
 }
 
 int APS5_VABI sceNpWebApi2SendRequest(int64_t request_id, const void* data, size_t data_size, NpWebApi2ResponseInformationOption* response_info_option) {
-    (void)request_id;
-    (void)data;
-    (void)data_size;
-    (void)response_info_option;
-    return SCE_NP_WEBAPI2_ERROR_UNAVAILABLE;
+    int ret = SCE_NP_WEBAPI2_ERROR_UNAVAILABLE;
+    std::uint32_t status = 0;
+    std::uint64_t responseSize = 0;
+    bool tracked = false;
+    TrackedRequest snapshot;
+    if (Tracking()) {
+        std::lock_guard lock(g_webMutex);
+        const auto found = g_trackedRequests.find(request_id);
+        if (found != g_trackedRequests.end()) {
+            tracked = true;
+            snapshot.userKnown = found->second.userKnown;
+            snapshot.complete = found->second.complete;
+            snapshot.userId = found->second.userId;
+            snapshot.apiGroup = found->second.apiGroup;
+            snapshot.path = found->second.path;
+            snapshot.method = found->second.method;
+            snapshot.headers = found->second.headers;
+        }
+    }
+    if (tracked && NetBridgeEnabled_nid_no_patch() != 0 && snapshot.userKnown && snapshot.complete && (data_size == 0 || data != nullptr) && data_size <= MAX_REQUEST_BODY) {
+        std::vector<const char*> names;
+        std::vector<const char*> values;
+        for (const auto& header : snapshot.headers) {
+            names.push_back(header.first.c_str());
+            values.push_back(header.second.c_str());
+        }
+        NetBridgeWebRequestView request{};
+        request.userId = snapshot.userId;
+        request.apiGroup = snapshot.apiGroup.c_str();
+        request.path = snapshot.path.c_str();
+        request.method = snapshot.method.c_str();
+        request.headerCount = static_cast<std::uint32_t>(names.size());
+        request.headerNames = names.data();
+        request.headerValues = values.data();
+        request.body = data;
+        request.bodySize = data_size;
+        NetBridgeWebReplyView reply{};
+        if (NetBridgeWebRequest_nid_no_patch(&request, &reply) != 0) {
+            std::lock_guard lock(g_webMutex);
+            const auto found = g_trackedRequests.find(request_id);
+            if (found == g_trackedRequests.end()) {
+                NetBridgeWebReplyRelease_nid_no_patch(&reply);
+            } else {
+                ReleaseReply(found->second);
+                if (g_retainedReplyBytes + reply.bodySize > MAX_RETAINED_REPLY_BYTES) {
+                    NetBridgeWebReplyRelease_nid_no_patch(&reply);
+                } else {
+                    found->second.reply = reply;
+                    found->second.hasReply = true;
+                    found->second.readOffset = 0;
+                    g_retainedReplyBytes += reply.bodySize;
+                    status = reply.status;
+                    responseSize = reply.bodySize;
+                    ret = 0;
+                }
+            }
+        }
+    }
+    if (ret == 0 && response_info_option != nullptr) {
+        response_info_option->http_status = static_cast<std::int32_t>(status);
+        response_info_option->error_object = nullptr;
+        response_info_option->error_object_size = 0;
+        response_info_option->response_data_size = static_cast<std::size_t>(responseSize);
+    }
+    NetBridgeRecord(WEB_API_LIBRARY, "sceNpWebApi2SendRequest", true, ret, [&](NetBridgeJson& in, NetBridgeJson& out) {
+        in.Int("request_id", request_id);
+        if (tracked) {
+            if (snapshot.userKnown) in.Int("user_id", snapshot.userId);
+            in.Text("api_group", snapshot.apiGroup).Text("path", snapshot.path).Text("method", snapshot.method);
+            in.Begin("headers");
+            for (const auto& header : snapshot.headers) in.Text(header.first, header.second);
+            in.End();
+        }
+        if (data != nullptr) in.Bytes("body", data, data_size);
+        out.Uint("status", status);
+        if (ret == 0) out.Uint("response_data_size", responseSize);
+    });
+    return ret;
 }
 
 int APS5_VABI sceNpWebApi2Terminate(int lib_ctx_id) {
@@ -205,6 +456,10 @@ int APS5_VABI sceNpWebApi2PushEventCreatePushContext(std::int32_t userContextId,
 }
 
 int APS5_VABI sceNpWebApi2PushEventDeleteFilter(std::int32_t libraryContextId, std::int32_t filterId) {
+    if (NetBridgeEnabled_nid_no_patch() != 0) NetBridgePushFilterGone_nid_no_patch(-1, static_cast<std::uint32_t>(filterId));
+    NetBridgeRecord(WEB_API_LIBRARY, "sceNpWebApi2PushEventDeleteFilter", true, 0, [&](NetBridgeJson& in, NetBridgeJson&) {
+        in.Int("lib_ctx_id", libraryContextId).Int("filter_id", filterId);
+    });
     return 0;
 }
 
