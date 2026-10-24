@@ -1,5 +1,6 @@
 #include "prx/libSceNetCtl/include/NetBridge.hpp"
 #include "prx/libSceNetCtl/tests/FakeNetService.hpp"
+#include "prx/libc/include/General.hpp"
 #include "prx/libc/include/general/VabiMacros.hpp"
 #include "SceTypes.hpp"
 
@@ -114,6 +115,31 @@ int main(int argc, char** argv) {
             const std::string content = text.str();
             return content.find("\"fn\":\"withoutService\"") != std::string::npos && content.find("\"in\":{\"user_id\":1}") != std::string::npos && content.back() == '\n';
         }, 5000), "observation line written");
+        {
+            NetBridgeCall call("libSceTest", "withCall", [](NetBridgeJson& in) { in.Int("ctx_id", 7); });
+            Require(call.Ret(static_cast<int>(0x80550006)) == static_cast<int>(0x80550006), "call passes the return value through");
+        }
+        {
+            NetBridgeCall call("libSceTest", "withPointer");
+            int value = 0;
+            Require(call.Ret(&value) == &value, "call passes a pointer through");
+        }
+        bool threw = false;
+        try {
+            NotImplemented_nid_no_patch("sceTestMissing");
+        } catch (const std::runtime_error&) {
+            threw = true;
+        }
+        Require(threw, "not implemented still throws");
+        {
+            std::ifstream input(path, std::ios::binary);
+            std::ostringstream text;
+            text << input.rdbuf();
+            const std::string content = text.str();
+            Require(content.find("\"fn\":\"not_implemented\",\"in\":{\"export\":\"sceTestMissing\"},\"out\":{}}\n") != std::string::npos, "not implemented line is on disk before the throw");
+            Require(content.find("\"fn\":\"withCall\",\"in\":{\"ctx_id\":7},\"out\":{},\"ret\":\"0x80550006\"}") != std::string::npos, "queued call line is flushed with it");
+            Require(content.find("\"fn\":\"withPointer\",\"in\":{},\"out\":{}}") != std::string::npos, "a pointer return has no ret");
+        }
         std::filesystem::remove(path, removed);
         std::puts("net bridge off: ok");
         return 0;

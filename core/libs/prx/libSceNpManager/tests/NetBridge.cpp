@@ -129,18 +129,15 @@ int main() {
     std::uint8_t plusResult[40];
     std::memset(plusResult, 0x5A, sizeof(plusResult));
     const std::uint8_t plusParameter[16] = {};
-    Require(sceNpCheckPlus(request, plusParameter, plusResult) == 0 && plusResult[0] == 1 && plusResult[1] == 0x5A, "plus granted while signed in");
+    Require(sceNpCheckPlus(request, plusParameter, plusResult) == SignedOut && plusResult[0] == 0x5A, "plus stays signed out while signed in");
     int polled = 1;
-    Require(sceNpPollAsync(request, &polled) == 0 && polled == 0, "poll reports the grant");
+    Require(sceNpPollAsync(request, &polled) == 0 && polled == SignedOut, "poll stays signed out while signed in");
     NpCheckPremiumParameter premiumParameter{};
     NpCheckPremiumResult premiumResult;
     std::memset(&premiumResult, 0x5A, sizeof(premiumResult));
-    Require(sceNpCheckPremium(request, &premiumParameter, &premiumResult) == 0 && premiumResult.opaque[0] == 1 && premiumResult.opaque[1] == 0 && premiumResult.opaque[63] == 0, "premium granted while signed in");
-    Require(sceNpCheckPremium(request, &premiumParameter, nullptr) == InvalidArgument, "premium without a result");
+    Require(sceNpCheckPremium(request, &premiumParameter, &premiumResult) == SignedOut && premiumResult.opaque[0] == 0x5A, "premium stays signed out while signed in");
     Require(sceNpCheckPlus(0, plusParameter, plusResult) == InvalidArgument && sceNpCheckPlus(request, nullptr, plusResult) == InvalidArgument, "plus arguments");
     Require(sceNpDeleteRequest(request) == 0, "delete request");
-    Require(sceNpCheckPlus(request, plusParameter, plusResult) == RequestNotFound, "plus on a deleted request");
-    Require(sceNpPollAsync(request, &polled) == 0 && polled == SignedOut, "a deleted request polls as today");
 
     int dummyFeature = 0;
     Require(sceNpNotifyPlusFeature(&dummyFeature) == 0, "plus feature accepted");

@@ -1,4 +1,5 @@
 #include "prx/libSceNetCtl/include/NetBridge.hpp"
+#include "prx/libc/include/General.hpp"
 
 #include <atomic>
 #include <chrono>
@@ -43,6 +44,21 @@ public:
         queuedBytes += line.size();
         lines.push_back(std::move(line));
         wake.notify_one();
+    }
+
+    void PushNow(const NetBridgeObservation& observation) {
+        std::string text;
+        std::uint64_t lost = 0;
+        {
+            std::lock_guard lock(mutex);
+            for (const auto& queued : lines) text += queued;
+            lines.clear();
+            queuedBytes = 0;
+            lost = std::exchange(dropped, 0);
+        }
+        if (lost != 0) text += droppedLine(lost);
+        text += buildLine(observation);
+        write(text);
     }
 
 private:
@@ -97,6 +113,16 @@ private:
         return line;
     }
 
+    std::string droppedLine(std::uint64_t lost) const {
+        return "{\"v\":1,\"t_ns\":" + std::to_string(elapsedNanos()) + ",\"src\":\"bridge\",\"lib\":\"libSceNetCtl\",\"fn\":\"dropped\",\"dropped\":" + std::to_string(lost) + "}\n";
+    }
+
+    void write(const std::string& text) {
+        std::lock_guard lock(outputMutex);
+        output.write(text.data(), static_cast<std::streamsize>(text.size()));
+        output.flush();
+    }
+
     void run() {
         try {
             while (true) {
@@ -111,12 +137,9 @@ private:
                 }
                 std::string text;
                 for (const auto& line : batch) text += line;
-                if (lost != 0) {
-                    text += "{\"v\":1,\"t_ns\":" + std::to_string(elapsedNanos()) + ",\"src\":\"bridge\",\"lib\":\"libSceNetCtl\",\"fn\":\"dropped\",\"dropped\":" + std::to_string(lost) + "}\n";
-                }
+                if (lost != 0) text += droppedLine(lost);
                 if (text.empty()) continue;
-                output.write(text.data(), static_cast<std::streamsize>(text.size()));
-                output.flush();
+                write(text);
             }
         } catch (...) {
             std::fputs("[netbridge] observation writer stopped\n", stderr);
@@ -127,6 +150,7 @@ private:
     std::ofstream output;
     bool open = false;
     std::mutex mutex;
+    std::mutex outputMutex;
     std::condition_variable wake;
     std::deque<std::string> lines;
     std::size_t queuedBytes = 0;
@@ -157,10 +181,34 @@ ObservationWriter* Writer() {
     return writer;
 }
 
+void ObserveNotImplemented(const char* funcName) {
+    if (Writer() == nullptr) return;
+    NetBridgeJson in;
+    in.Text("export", funcName);
+    const std::string inText = in.Finish();
+    const NetBridgeObservation observation{"libSceNetCtl", "not_implemented", inText.c_str(), "{}", 0, 0, in.Cut()};
+    NetBridgeObserveNow_nid_no_patch(&observation);
+}
+
+const bool g_notImplementedHooked = [] {
+    SetNotImplementedHook_nid_no_patch(&ObserveNotImplemented);
+    return true;
+}();
+
 }
 
 extern "C" int NetBridgeObserveEnabled_nid_no_patch(void) {
     return Writer() != nullptr ? 1 : 0;
+}
+
+extern "C" void NetBridgeObserveNow_nid_no_patch(const NetBridgeObservation* observation) {
+    if (observation == nullptr) return;
+    auto* writer = Writer();
+    if (writer == nullptr) return;
+    try {
+        writer->PushNow(*observation);
+    } catch (...) {
+    }
 }
 
 extern "C" void NetBridgeObserve_nid_no_patch(const NetBridgeObservation* observation) {

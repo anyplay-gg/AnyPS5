@@ -841,6 +841,20 @@ extern "C" int DuplicateHostDescriptor_nid_no_patch(int descriptor) {
 }
 #endif
 
+namespace {
+std::atomic<void (*)(const char*)> g_notImplementedHook{nullptr};
+}
+
+extern "C" void SetNotImplementedHook_nid_no_patch(void (*hook)(const char* funcName)) {
+    g_notImplementedHook.store(hook, std::memory_order_release);
+}
+
 extern "C" [[noreturn]] void NotImplemented_nid_no_patch(const char* funcName) {
+    if (auto* hook = g_notImplementedHook.load(std::memory_order_acquire)) {
+        try {
+            hook(funcName);
+        } catch (...) {
+        }
+    }
     throw std::runtime_error(std::string(funcName) + " not implemented");
 }

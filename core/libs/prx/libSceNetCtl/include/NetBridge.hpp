@@ -7,6 +7,7 @@
 #include <cstdio>
 #include <string>
 #include <string_view>
+#include <type_traits>
 #include <vector>
 
 struct NetBridgeStateView {
@@ -61,6 +62,7 @@ void NetBridgePushFilter_nid_no_patch(std::int32_t userId, std::uint32_t filter,
 void NetBridgePushFilterGone_nid_no_patch(std::int32_t userId, std::uint32_t filter);
 int NetBridgeObserveEnabled_nid_no_patch(void);
 void NetBridgeObserve_nid_no_patch(const NetBridgeObservation* observation);
+void NetBridgeObserveNow_nid_no_patch(const NetBridgeObservation* observation);
 
 }
 
@@ -274,5 +276,50 @@ inline void NetBridgeRecord(const char* lib, const char* fn, bool hasRet, std::i
     const NetBridgeObservation observation{lib, fn, inText.c_str(), outText.c_str(), ret, hasRet ? 1 : 0, std::max(in.Cut(), out.Cut())};
     NetBridgeObserve_nid_no_patch(&observation);
 }
+
+class NetBridgeCall {
+public:
+    NetBridgeCall(const char* lib, const char* fn) : lib(lib), fn(fn), on(NetBridgeObserveEnabled_nid_no_patch() != 0) {
+    }
+
+    template <typename TBuild>
+    NetBridgeCall(const char* lib, const char* fn, TBuild&& build) : NetBridgeCall(lib, fn) {
+        if (on) build(in);
+    }
+
+    NetBridgeCall(const NetBridgeCall&) = delete;
+    NetBridgeCall& operator=(const NetBridgeCall&) = delete;
+
+    template <typename T>
+    T Ret(T value) {
+        if constexpr (std::is_integral_v<T> && !std::is_same_v<T, bool> && sizeof(T) <= sizeof(std::int32_t)) {
+            ret = static_cast<std::int32_t>(value);
+            hasRet = true;
+        } else if constexpr (std::is_same_v<T, bool>) {
+            if (on) out.Bool("value", value);
+        }
+        return value;
+    }
+
+    ~NetBridgeCall() {
+        if (!on) return;
+        try {
+            const std::string inText = in.Finish();
+            const std::string outText = out.Finish();
+            const NetBridgeObservation observation{lib, fn, inText.c_str(), outText.c_str(), ret, hasRet ? 1 : 0, std::max(in.Cut(), out.Cut())};
+            NetBridgeObserve_nid_no_patch(&observation);
+        } catch (...) {
+        }
+    }
+
+private:
+    const char* lib;
+    const char* fn;
+    bool on;
+    bool hasRet = false;
+    std::int32_t ret = 0;
+    NetBridgeJson in;
+    NetBridgeJson out;
+};
 
 #endif
