@@ -1,3 +1,4 @@
+#include "prx/libSceSsl/include/Ssl.hpp"
 #ifdef _WIN32
 #include <winsock2.h>
 #else
@@ -467,8 +468,6 @@ struct Session {
     }
 };
 
-using SslVerifyCallback = int (APS5_VABI *)(int, unsigned int, void**, int, void*);
-
 constexpr int SslVersionSsl30 = 2;
 constexpr int SslVersionTls12 = 5;
 
@@ -660,7 +659,9 @@ int APS5_VABI sceSslTerm_nid_postfix(int sslCtxId) {
     NetBridgeCall netCall("libSceSsl", __func__, [&](NetBridgeJson& netIn) { netIn.Int("ssl_ctx_id", sslCtxId); });
     auto& state = State();
     std::lock_guard lock(state.mutex);
-    if (!state.contexts.erase(sslCtxId)) return netCall.Ret(ErrorInvalidId);
+    if (!state.contexts.contains(sslCtxId)) return netCall.Ret(ErrorInvalidId);
+    std::erase_if(state.connections, [sslCtxId](const auto& entry) { return entry.second.context == sslCtxId; });
+    state.contexts.erase(sslCtxId);
     return netCall.Ret(0);
 }
 
@@ -1299,7 +1300,6 @@ int APS5_VABI CRYPTO_initAsymmetricKey() {
 
 int APS5_VABI CRYPTO_uninitAsymmetricKey() {
     NetBridgeCall netCall("libSceSsl", __func__);
-    NotImplemented_nid_no_patch(__func__);
     return netCall.Ret(0);
 }
 
@@ -1311,7 +1311,6 @@ int APS5_VABI RSA_verifySignature() {
 
 int APS5_VABI VLONG_freeVlongQueue() {
     NetBridgeCall netCall("libSceSsl", __func__);
-    NotImplemented_nid_no_patch(__func__);
     return netCall.Ret(0);
 }
 
@@ -1404,6 +1403,12 @@ int APS5_VABI sceSslSend(int sslConnectionId, void* msg, std::size_t fulllen) {
 }
 
 int APS5_VABI sceSslSetSslVersion() {
+    NetBridgeCall netCall("libSceSsl", __func__);
+    NotImplemented_nid_no_patch(__func__);
+    return netCall.Ret(0);
+}
+
+int APS5_VABI sceSslSetServerName() {
     NetBridgeCall netCall("libSceSsl", __func__);
     NotImplemented_nid_no_patch(__func__);
     return netCall.Ret(0);

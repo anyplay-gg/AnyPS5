@@ -1,3 +1,4 @@
+#include "prx/libSceHttp2/include/Http2.hpp"
 #include <cstdint>
 #include <cstddef>
 #include <cstring>
@@ -63,13 +64,6 @@ static bool HandleIsLive(int id) {
     return FindAnyHandle(id) != nullptr;
 }
 
-struct Http2MemoryPoolStats {
-    size_t pool_size;
-    size_t max_inuse_size;
-    size_t current_inuse_size;
-    int32_t reserved;
-};
-
 static std::mutex g_completionsMutex;
 static std::unordered_map<int, std::deque<Http2AsyncResult>> g_completions;
 
@@ -104,11 +98,6 @@ static int CompleteAsync(const char* function, int req_id, const Http2AsyncOptio
     }
     return 0;
 }
-
-using Http2WebSocketTextCallback = void (APS5_VABI*)(std::int32_t requestId, const char* text, std::uint32_t flags, void* userData);
-using Http2WebSocketDataCallback = void (APS5_VABI*)(std::int32_t requestId, const void* data, std::size_t dataSize, std::uint32_t flags, void* userData);
-using Http2WebSocketCloseCallback = void (APS5_VABI*)(std::int32_t requestId, const std::uint16_t* status, const char* reason, std::uint32_t flags, void* userData);
-using Http2WebSocketErrorCallback = void (APS5_VABI*)(std::int32_t requestId, std::int32_t error, void* userData);
 
 extern "C" {
 
@@ -422,7 +411,6 @@ int APS5_VABI sceHttp2SetRequestNoContentLength(int id) {
     (void)id;
     return netCall.Ret(0);
 }
-
 
 int APS5_VABI sceHttp2SetResolveRetry(int id, int32_t retry) {
     NetBridgeCall netCall("libSceHttp2", __func__, [&](NetBridgeJson& netIn) { netIn.Int("id", id); netIn.Int("retry", retry); });
