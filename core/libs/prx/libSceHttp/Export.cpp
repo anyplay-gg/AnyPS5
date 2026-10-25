@@ -1,3 +1,4 @@
+#include "prx/libSceHttp/include/Http.hpp"
 #include <cstdint>
 #include <cstddef>
 #ifdef _WIN32
@@ -5,6 +6,7 @@
 #include <windows.h>
 #endif
 #include "SceTypes.hpp"
+#include "prx/libSceNetCtl/include/NetBridge.hpp"
 #include "prx/libc/include/General.hpp"
 #include "prx/libSceHttp/src/HttpErrors.hpp"
 #include "prx/libSceHttp/src/Options.hpp"
@@ -24,51 +26,22 @@
 // No network is emulated: contexts, templates and requests can be created, but any request
 // that would touch the network fails with the library's network error.
 static std::atomic<int> g_nextHandle{1};
-struct HttpConnectionStat;
-struct HttpRequestStat;
 
-using HttpCookieSendCallback = int (APS5_VABI *)(std::int32_t, const char*, const char*, void*);
-using HttpSocketCreationCallback = void (APS5_VABI *)(std::int32_t, std::int32_t, void*);
-using HttpRequestStatusCallback = void (APS5_VABI *)(int, int, void*);
 struct RequestStatusRegistration {
     HttpRequestStatusCallback callback;
     void* argument;
 };
 static std::mutex g_statusMutex;
 static std::map<int, RequestStatusRegistration> g_statusCallbacks;
-struct HttpCookieStats {
-    std::size_t usedBytes;
-    std::uint32_t cookieCount;
-    std::uint32_t reserved;
-    std::size_t peakUsedBytes;
-    std::uint32_t peakCookieCount;
-    std::uint32_t evictedCookieCount;
-};
 
 static_assert(sizeof(HttpCookieStats) == 32);
 static_assert(offsetof(HttpCookieStats, peakUsedBytes) == 16);
-
-struct HttpMemoryPoolStats {
-    std::size_t poolSize;
-    std::size_t peakUsedSize;
-    std::size_t usedSize;
-};
-
-struct HttpRequestHeader {
-    const char* name;
-    const char* value;
-};
 
 static_assert(sizeof(HttpMemoryPoolStats) == 24);
 static_assert(offsetof(HttpMemoryPoolStats, peakUsedSize) == 8);
 static_assert(offsetof(HttpMemoryPoolStats, usedSize) == 16);
 static_assert(sizeof(HttpRequestHeader) == 16);
 static_assert(offsetof(HttpRequestHeader, value) == 8);
-
-struct HttpsCaList {
-    void* certs;
-    int certsNum;
-};
 
 #ifdef _WIN32
 struct HostMutex {
@@ -138,6 +111,7 @@ struct HttpEpoll {
 
 static std::mutex g_stateMutex;
 static std::unordered_set<int> g_contexts;
+static std::unordered_map<int, uint64_t> g_contextPoolSizes;
 static std::unordered_map<HttpEpollHandle, std::shared_ptr<HttpEpoll>> g_epolls;
 
 static std::shared_ptr<HttpEpoll> FindEpoll(HttpEpollHandle eh) {
@@ -154,289 +128,342 @@ static void MarkDestroyed(HttpEpoll& epoll) {
 extern "C" {
 
 int APS5_VABI sceHttpAbortRequest(int request_id) {
+    NetBridgeCall netCall("libSceHttp", __func__, [&](NetBridgeJson& netIn) { netIn.Int("request_id", request_id); });
     (void)request_id;
-    return 0;
+    return netCall.Ret(0);
 }
 
 int APS5_VABI sceHttpAbortRequestForce(int request_id) {
-    return sceHttpAbortRequest(request_id);
+    NetBridgeCall netCall("libSceHttp", __func__, [&](NetBridgeJson& netIn) { netIn.Int("request_id", request_id); });
+    return netCall.Ret(sceHttpAbortRequest(request_id));
 }
 
 int APS5_VABI sceHttpAddRequestHeader(int id, const char* name, const char* value, uint32_t mode) {
+    NetBridgeCall netCall("libSceHttp", __func__, [&](NetBridgeJson& netIn) { netIn.Int("id", id); netIn.Uint("mode", mode); });
     (void)id;
     (void)name;
     (void)value;
     (void)mode;
-    return 0;
+    return netCall.Ret(0);
 }
 
 int APS5_VABI sceHttpAuthCacheFlush(int httpCtxId) {
+    NetBridgeCall netCall("libSceHttp", __func__, [&](NetBridgeJson& netIn) { netIn.Int("http_ctx_id", httpCtxId); });
     std::lock_guard lock(g_stateMutex);
-    if (g_contexts.empty()) return ERROR_BEFORE_INIT;
-    if (!g_contexts.contains(httpCtxId)) return ERROR_INVALID_ID;
-    return 0;
+    if (g_contexts.empty()) return netCall.Ret(ERROR_BEFORE_INIT);
+    if (!g_contexts.contains(httpCtxId)) return netCall.Ret(ERROR_INVALID_ID);
+    return netCall.Ret(0);
 }
 
 int APS5_VABI sceHttpCookieFlush(int httpCtxId) {
+    NetBridgeCall netCall("libSceHttp", __func__, [&](NetBridgeJson& netIn) { netIn.Int("http_ctx_id", httpCtxId); });
     std::lock_guard lock(g_stateMutex);
-    if (g_contexts.empty()) return ERROR_BEFORE_INIT;
-    if (!g_contexts.contains(httpCtxId)) return ERROR_INVALID_ID;
-    return 0;
+    if (g_contexts.empty()) return netCall.Ret(ERROR_BEFORE_INIT);
+    if (!g_contexts.contains(httpCtxId)) return netCall.Ret(ERROR_INVALID_ID);
+    return netCall.Ret(0);
+}
+
+int APS5_VABI sceHttpGetMemoryPoolStats(int httpCtxId, HttpMemoryPoolStats* currentStat) {
+    NetBridgeCall netCall("libSceHttp", __func__, [&](NetBridgeJson& netIn) { netIn.Int("http_ctx_id", httpCtxId); });
+    if (!currentStat) APS5_INVALID_ARG_EX;
+    std::lock_guard lock(g_stateMutex);
+    if (g_contexts.empty()) return netCall.Ret(ERROR_BEFORE_INIT);
+    const auto pool = g_contextPoolSizes.find(httpCtxId);
+    if (pool == g_contextPoolSizes.end()) return netCall.Ret(ERROR_INVALID_ID);
+    *currentStat = {static_cast<std::size_t>(pool->second), 0, 0};
+    return netCall.Ret(0);
 }
 
 int APS5_VABI sceHttpCreateConnection(int tmpl_id, const char* server_name, const char* scheme, uint16_t port, int enable_keep_alive) {
+    NetBridgeCall netCall("libSceHttp", __func__, [&](NetBridgeJson& netIn) { netIn.Int("tmpl_id", tmpl_id); netIn.Text("server_name", server_name); netIn.Text("scheme", scheme); netIn.Uint("port", port); netIn.Int("enable_keep_alive", enable_keep_alive); });
     (void)server_name;
     (void)scheme;
     (void)port;
     (void)enable_keep_alive;
     const int id = g_nextHandle.fetch_add(1, std::memory_order_relaxed);
     AddHttpChild(id, tmpl_id);
-    return id;
+    return netCall.Ret(id);
 }
 
 int APS5_VABI sceHttpCreateConnectionWithURL(int tmpl_id, const char* url, int enable_keep_alive) {
+    NetBridgeCall netCall("libSceHttp", __func__, [&](NetBridgeJson& netIn) { netIn.Int("tmpl_id", tmpl_id); netIn.Text("url", url); netIn.Int("enable_keep_alive", enable_keep_alive); });
     (void)url;
     (void)enable_keep_alive;
     const int id = g_nextHandle.fetch_add(1, std::memory_order_relaxed);
     AddHttpChild(id, tmpl_id);
-    return id;
+    return netCall.Ret(id);
 }
 
 int APS5_VABI sceHttpCreateEpoll(int http_ctx_id, HttpEpollHandle* eh) {
+    NetBridgeCall netCall("libSceHttp", __func__, [&](NetBridgeJson& netIn) { netIn.Int("http_ctx_id", http_ctx_id); });
     std::lock_guard lock(g_stateMutex);
-    if (g_contexts.empty()) return ERROR_BEFORE_INIT;
-    if (!g_contexts.contains(http_ctx_id)) return ERROR_INVALID_ID;
-    if (!eh) return ERROR_INVALID_VALUE;
+    if (g_contexts.empty()) return netCall.Ret(ERROR_BEFORE_INIT);
+    if (!g_contexts.contains(http_ctx_id)) return netCall.Ret(ERROR_INVALID_ID);
+    if (!eh) return netCall.Ret(ERROR_INVALID_VALUE);
     auto epoll = std::make_shared<HttpEpoll>();
     *eh = epoll.get();
     g_epolls.emplace(epoll.get(), std::move(epoll));
-    return 0;
+    return netCall.Ret(0);
 }
 
 int APS5_VABI sceHttpCreateRequest(int conn_id, int method, const char* path, uint64_t content_length) {
+    NetBridgeCall netCall("libSceHttp", __func__, [&](NetBridgeJson& netIn) { netIn.Int("conn_id", conn_id); netIn.Int("method", method); netIn.Text("path", path); netIn.Uint("content_length", content_length); });
     (void)method;
     (void)path;
     (void)content_length;
     const int id = g_nextHandle.fetch_add(1, std::memory_order_relaxed);
     AddHttpChild(id, conn_id);
-    return id;
+    return netCall.Ret(id);
 }
 
 int APS5_VABI sceHttpCreateRequestWithURL2(int conn_id, const char* method, const char* url, uint64_t content_length) {
+    NetBridgeCall netCall("libSceHttp", __func__, [&](NetBridgeJson& netIn) { netIn.Int("conn_id", conn_id); netIn.Text("method", method); netIn.Text("url", url); netIn.Uint("content_length", content_length); });
     (void)method;
     (void)url;
     (void)content_length;
     const int id = g_nextHandle.fetch_add(1, std::memory_order_relaxed);
     AddHttpChild(id, conn_id);
-    return id;
+    return netCall.Ret(id);
 }
 
 int APS5_VABI sceHttpCreateTemplate(int http_ctx_id, const char* user_agent, int http_ver, int is_auto_proxy_conf) {
+    NetBridgeCall netCall("libSceHttp", __func__, [&](NetBridgeJson& netIn) { netIn.Int("http_ctx_id", http_ctx_id); netIn.Int("http_ver", http_ver); netIn.Int("is_auto_proxy_conf", is_auto_proxy_conf); });
     (void)user_agent;
     (void)http_ver;
     (void)is_auto_proxy_conf;
     const int id = g_nextHandle.fetch_add(1, std::memory_order_relaxed);
     AddHttpTemplate(id, http_ctx_id);
-    return id;
+    return netCall.Ret(id);
 }
 
 int APS5_VABI sceHttpDeleteConnection(int conn_id) {
+    NetBridgeCall netCall("libSceHttp", __func__, [&](NetBridgeJson& netIn) { netIn.Int("conn_id", conn_id); });
     RemoveHttpObject(conn_id);
-    return 0;
+    return netCall.Ret(0);
 }
 
 int APS5_VABI sceHttpDeleteRequest(int req_id) {
+    NetBridgeCall netCall("libSceHttp", __func__, [&](NetBridgeJson& netIn) { netIn.Int("req_id", req_id); });
     RemoveHttpObject(req_id);
     std::lock_guard lock(g_statusMutex);
     g_statusCallbacks.erase(req_id);
-    return 0;
+    return netCall.Ret(0);
 }
 
 int APS5_VABI sceHttpDeleteTemplate(int tmpl_id) {
+    NetBridgeCall netCall("libSceHttp", __func__, [&](NetBridgeJson& netIn) { netIn.Int("tmpl_id", tmpl_id); });
     RemoveHttpObject(tmpl_id);
-    return 0;
+    return netCall.Ret(0);
 }
 
 int APS5_VABI sceHttpDestroyEpoll(int http_ctx_id, HttpEpollHandle eh) {
+    NetBridgeCall netCall("libSceHttp", __func__, [&](NetBridgeJson& netIn) { netIn.Int("http_ctx_id", http_ctx_id); });
     std::shared_ptr<HttpEpoll> epoll;
     {
         std::lock_guard lock(g_stateMutex);
-        if (g_contexts.empty()) return ERROR_BEFORE_INIT;
-        if (!g_contexts.contains(http_ctx_id)) return ERROR_INVALID_ID;
-        if (!eh) return ERROR_INVALID_VALUE;
+        if (g_contexts.empty()) return netCall.Ret(ERROR_BEFORE_INIT);
+        if (!g_contexts.contains(http_ctx_id)) return netCall.Ret(ERROR_INVALID_ID);
+        if (!eh) return netCall.Ret(ERROR_INVALID_VALUE);
         epoll = FindEpoll(eh);
-        if (!epoll) return ERROR_INVALID_ID;
+        if (!epoll) return netCall.Ret(ERROR_INVALID_ID);
         g_epolls.erase(eh);
     }
     MarkDestroyed(*epoll);
-    return 0;
+    return netCall.Ret(0);
 }
 
 int APS5_VABI sceHttpGetAllResponseHeaders(int request_id, char** header, size_t* header_size) {
+    NetBridgeCall netCall("libSceHttp", __func__, [&](NetBridgeJson& netIn) { netIn.Int("request_id", request_id); });
     (void)request_id;
     (void)header;
     (void)header_size;
-    return ERROR_NETWORK;
+    return netCall.Ret(ERROR_NETWORK);
 }
 
 int APS5_VABI sceHttpGetResponseContentLength(int request_id, int* result, uint64_t* content_length) {
+    NetBridgeCall netCall("libSceHttp", __func__, [&](NetBridgeJson& netIn) { netIn.Int("request_id", request_id); });
     (void)request_id;
     (void)result;
     (void)content_length;
-    return ERROR_NETWORK;
+    return netCall.Ret(ERROR_NETWORK);
 }
 
 int APS5_VABI sceHttpGetStatusCode(int request_id, int* status_code) {
+    NetBridgeCall netCall("libSceHttp", __func__, [&](NetBridgeJson& netIn) { netIn.Int("request_id", request_id); });
     (void)request_id;
     (void)status_code;
-    return ERROR_NETWORK;
+    return netCall.Ret(ERROR_NETWORK);
 }
 
 int APS5_VABI sceHttpInit_nid_postfix(int memid, int ssl_ctx_id, uint64_t pool_size) {
+    NetBridgeCall netCall("libSceHttp", __func__, [&](NetBridgeJson& netIn) { netIn.Int("memid", memid); netIn.Int("ssl_ctx_id", ssl_ctx_id); netIn.Uint("pool_size", pool_size); });
     (void)memid;
     (void)ssl_ctx_id;
-    (void)pool_size;
     const int id = g_nextHandle.fetch_add(1, std::memory_order_relaxed);
     std::lock_guard lock(g_stateMutex);
+    g_contextPoolSizes[id] = pool_size;
     g_contexts.insert(id);
     AddHttpContext(id);
-    return id;
+    return netCall.Ret(id);
 }
 
 int APS5_VABI sceHttpsDisableOption(int id, uint32_t ssl_flags) {
+    NetBridgeCall netCall("libSceHttp", __func__, [&](NetBridgeJson& netIn) { netIn.Int("id", id); netIn.Uint("ssl_flags", ssl_flags); });
     (void)id;
     (void)ssl_flags;
-    return 0;
+    return netCall.Ret(0);
 }
 
 int APS5_VABI sceHttpSendRequest(int request_id, const void* post_data, size_t size) {
+    NetBridgeCall netCall("libSceHttp", __func__, [&](NetBridgeJson& netIn) { netIn.Int("request_id", request_id); netIn.Uint("size", size); });
     (void)request_id;
     (void)post_data;
     (void)size;
-    return ERROR_NETWORK;
+    return netCall.Ret(ERROR_NETWORK);
 }
 
 int APS5_VABI sceHttpSetAuthEnabled(int id, int enable) {
-    if (!HttpInitialised()) return ERROR_BEFORE_INIT;
-    return SetHttpOption(id, &HttpOptions::authEnabled, enable != 0) ? 0 : ERROR_INVALID_ID;
+    NetBridgeCall netCall("libSceHttp", __func__, [&](NetBridgeJson& netIn) { netIn.Int("id", id); netIn.Int("enable", enable); });
+    if (!HttpInitialised()) return netCall.Ret(ERROR_BEFORE_INIT);
+    return netCall.Ret(SetHttpOption(id, &HttpOptions::authEnabled, enable != 0) ? 0 : ERROR_INVALID_ID);
 }
 
 int APS5_VABI sceHttpSetAuthInfoCallback(int id, HttpAuthInfoCallback callback, void* userArg) {
+    NetBridgeCall netCall("libSceHttp", __func__, [&](NetBridgeJson& netIn) { netIn.Int("id", id); });
     (void)id;
     (void)callback;
     (void)userArg;
-    return 0;
+    return netCall.Ret(0);
 }
 
 int APS5_VABI sceHttpSetCookieEnabled(int id, int enable) {
-    if (static_cast<uint32_t>(enable) > 1) return ERROR_INVALID_VALUE;
-    if (!HttpInitialised()) return ERROR_BEFORE_INIT;
-    return SetHttpOption(id, &HttpOptions::cookieEnabled, enable != 0) ? 0 : ERROR_INVALID_ID;
+    NetBridgeCall netCall("libSceHttp", __func__, [&](NetBridgeJson& netIn) { netIn.Int("id", id); netIn.Int("enable", enable); });
+    if (static_cast<uint32_t>(enable) > 1) return netCall.Ret(ERROR_INVALID_VALUE);
+    if (!HttpInitialised()) return netCall.Ret(ERROR_BEFORE_INIT);
+    return netCall.Ret(SetHttpOption(id, &HttpOptions::cookieEnabled, enable != 0) ? 0 : ERROR_INVALID_ID);
 }
 
 int APS5_VABI sceHttpSetAutoRedirect(int id, int enable) {
-    if (!HttpInitialised()) return ERROR_BEFORE_INIT;
-    return SetHttpOption(id, &HttpOptions::autoRedirect, enable != 0) ? 0 : ERROR_INVALID_ID;
+    NetBridgeCall netCall("libSceHttp", __func__, [&](NetBridgeJson& netIn) { netIn.Int("id", id); netIn.Int("enable", enable); });
+    if (!HttpInitialised()) return netCall.Ret(ERROR_BEFORE_INIT);
+    return netCall.Ret(SetHttpOption(id, &HttpOptions::autoRedirect, enable != 0) ? 0 : ERROR_INVALID_ID);
 }
 
 int APS5_VABI sceHttpSetConnectTimeOut(int id, uint32_t usec) {
+    NetBridgeCall netCall("libSceHttp", __func__, [&](NetBridgeJson& netIn) { netIn.Int("id", id); netIn.Uint("usec", usec); });
     (void)id;
     (void)usec;
-    return 0;
+    return netCall.Ret(0);
 }
 
 int APS5_VABI sceHttpSetEpoll(int id, HttpEpollHandle eh, void* user_arg) {
+    NetBridgeCall netCall("libSceHttp", __func__, [&](NetBridgeJson& netIn) { netIn.Int("id", id); });
     std::lock_guard lock(g_stateMutex);
-    if (g_contexts.empty()) return ERROR_BEFORE_INIT;
-    if (!FindEpoll(eh)) return ERROR_INVALID_ID;
-    return SetHttpEpollBinding(id, eh, user_arg) ? 0 : ERROR_INVALID_ID;
+    if (g_contexts.empty()) return netCall.Ret(ERROR_BEFORE_INIT);
+    if (!FindEpoll(eh)) return netCall.Ret(ERROR_INVALID_ID);
+    return netCall.Ret(SetHttpEpollBinding(id, eh, user_arg) ? 0 : ERROR_INVALID_ID);
 }
 
 int APS5_VABI sceHttpSetNonblock(int id, int enable) {
-    if (!HttpInitialised()) return ERROR_BEFORE_INIT;
-    return SetHttpOption(id, &HttpOptions::nonblock, enable != 0) ? 0 : ERROR_INVALID_ID;
+    NetBridgeCall netCall("libSceHttp", __func__, [&](NetBridgeJson& netIn) { netIn.Int("id", id); netIn.Int("enable", enable); });
+    if (!HttpInitialised()) return netCall.Ret(ERROR_BEFORE_INIT);
+    return netCall.Ret(SetHttpOption(id, &HttpOptions::nonblock, enable != 0) ? 0 : ERROR_INVALID_ID);
 }
 
 int APS5_VABI sceHttpTrySetNonblock(int id, int enable) {
-    return sceHttpSetNonblock(id, enable);
+    NetBridgeCall netCall("libSceHttp", __func__, [&](NetBridgeJson& netIn) { netIn.Int("id", id); netIn.Int("enable", enable); });
+    return netCall.Ret(sceHttpSetNonblock(id, enable));
 }
 
 int APS5_VABI sceHttpSetRecvTimeOut(int id, uint32_t usec) {
+    NetBridgeCall netCall("libSceHttp", __func__, [&](NetBridgeJson& netIn) { netIn.Int("id", id); netIn.Uint("usec", usec); });
     (void)id;
     (void)usec;
-    return 0;
+    return netCall.Ret(0);
 }
 
 int APS5_VABI sceHttpSetRecvBlockSize(int id, uint32_t block_size) {
+    NetBridgeCall netCall("libSceHttp", __func__, [&](NetBridgeJson& netIn) { netIn.Int("id", id); netIn.Uint("block_size", block_size); });
     (void)id;
     (void)block_size;
-    return 0;
+    return netCall.Ret(0);
 }
 
 int APS5_VABI sceHttpSetResponseHeaderMaxSize(int id, uint64_t header_size) {
+    NetBridgeCall netCall("libSceHttp", __func__, [&](NetBridgeJson& netIn) { netIn.Int("id", id); netIn.Uint("header_size", header_size); });
     (void)id;
     (void)header_size;
-    return 0;
+    return netCall.Ret(0);
 }
 
 int APS5_VABI sceHttpSetRequestContentLength(int request_id, uint64_t content_length) {
+    NetBridgeCall netCall("libSceHttp", __func__, [&](NetBridgeJson& netIn) { netIn.Int("request_id", request_id); netIn.Uint("content_length", content_length); });
     (void)request_id;
     (void)content_length;
-    return 0;
+    return netCall.Ret(0);
 }
 
 int APS5_VABI sceHttpSetResolveRetry(int id, int32_t retry) {
+    NetBridgeCall netCall("libSceHttp", __func__, [&](NetBridgeJson& netIn) { netIn.Int("id", id); netIn.Int("retry", retry); });
     (void)id;
     (void)retry;
-    return 0;
+    return netCall.Ret(0);
 }
 
 int APS5_VABI sceHttpSetResolveTimeOut(int id, uint32_t usec) {
+    NetBridgeCall netCall("libSceHttp", __func__, [&](NetBridgeJson& netIn) { netIn.Int("id", id); netIn.Uint("usec", usec); });
     (void)id;
     (void)usec;
-    return 0;
+    return netCall.Ret(0);
 }
 
 int APS5_VABI sceHttpSetSendTimeOut(int id, uint32_t usec) {
+    NetBridgeCall netCall("libSceHttp", __func__, [&](NetBridgeJson& netIn) { netIn.Int("id", id); netIn.Uint("usec", usec); });
     (void)id;
     (void)usec;
-    return 0;
+    return netCall.Ret(0);
 }
 
 int APS5_VABI sceHttpsSetMinSslVersion(int id, uint32_t ssl_version) {
+    NetBridgeCall netCall("libSceHttp", __func__, [&](NetBridgeJson& netIn) { netIn.Int("id", id); netIn.Uint("ssl_version", ssl_version); });
     (void)id;
     (void)ssl_version;
-    return 0;
+    return netCall.Ret(0);
 }
 
 int APS5_VABI sceHttpsSetSslCallback(int id, HttpsCallback cbfunc, void* user_arg) {
+    NetBridgeCall netCall("libSceHttp", __func__, [&](NetBridgeJson& netIn) { netIn.Int("id", id); });
     (void)id;
     (void)cbfunc;
     (void)user_arg;
-    return 0;
+    return netCall.Ret(0);
 }
 
 int APS5_VABI sceHttpTerm_nid_postfix(int http_ctx_id) {
+    NetBridgeCall netCall("libSceHttp", __func__, [&](NetBridgeJson& netIn) { netIn.Int("http_ctx_id", http_ctx_id); });
     std::vector<std::shared_ptr<HttpEpoll>> epolls;
     {
         std::lock_guard lock(g_stateMutex);
-        if (g_contexts.empty()) return ERROR_BEFORE_INIT;
-        if (g_contexts.erase(http_ctx_id) == 0) return ERROR_INVALID_ID;
+        g_contextPoolSizes.erase(http_ctx_id);
+        if (g_contexts.empty()) return netCall.Ret(ERROR_BEFORE_INIT);
+        if (g_contexts.erase(http_ctx_id) == 0) return netCall.Ret(ERROR_INVALID_ID);
         RemoveHttpContext(http_ctx_id);
-        if (!g_contexts.empty()) return 0;
+        if (!g_contexts.empty()) return netCall.Ret(0);
         for (auto& [handle, epoll] : g_epolls) epolls.push_back(std::move(epoll));
         g_epolls.clear();
     }
     for (const auto& epoll : epolls) MarkDestroyed(*epoll);
-    return 0;
+    return netCall.Ret(0);
 }
 
 int APS5_VABI sceHttpUnsetEpoll(int id) {
-    if (!HttpInitialised()) return ERROR_BEFORE_INIT;
-    return SetHttpEpollBinding(id, nullptr, nullptr) ? 0 : ERROR_INVALID_ID;
+    NetBridgeCall netCall("libSceHttp", __func__, [&](NetBridgeJson& netIn) { netIn.Int("id", id); });
+    if (!HttpInitialised()) return netCall.Ret(ERROR_BEFORE_INIT);
+    return netCall.Ret(SetHttpEpollBinding(id, nullptr, nullptr) ? 0 : ERROR_INVALID_ID);
 }
 
 int APS5_VABI sceHttpWaitRequest(HttpEpollHandle eh, HttpNBEvent* nbev, int maxevents, int timeout) {
+    NetBridgeCall netCall("libSceHttp", __func__, [&](NetBridgeJson& netIn) { netIn.Int("maxevents", maxevents); netIn.Int("timeout", timeout); });
     std::shared_ptr<HttpEpoll> epoll;
     {
         std::lock_guard lock(g_stateMutex);
@@ -457,49 +484,55 @@ int APS5_VABI sceHttpWaitRequest(HttpEpollHandle eh, HttpNBEvent* nbev, int maxe
 }
 
 int APS5_VABI sceHttpCreateRequestWithURL(int conn_id, int method, const char* url, uint64_t content_length) {
+    NetBridgeCall netCall("libSceHttp", __func__, [&](NetBridgeJson& netIn) { netIn.Int("conn_id", conn_id); netIn.Int("method", method); netIn.Text("url", url); netIn.Uint("content_length", content_length); });
     (void)method;
     (void)url;
     (void)content_length;
     const int id = g_nextHandle.fetch_add(1, std::memory_order_relaxed);
     AddHttpChild(id, conn_id);
-    return id;
+    return netCall.Ret(id);
 }
 
 int APS5_VABI sceHttpReadData(int request_id, void* data, size_t size) {
+    NetBridgeCall netCall("libSceHttp", __func__, [&](NetBridgeJson& netIn) { netIn.Int("request_id", request_id); netIn.Uint("size", size); });
     (void)request_id;
     (void)data;
     (void)size;
-    return ERROR_NETWORK;
+    return netCall.Ret(ERROR_NETWORK);
 }
 
 int APS5_VABI sceHttpRedirectCacheFlush(int http_ctx_id) {
+    NetBridgeCall netCall("libSceHttp", __func__, [&](NetBridgeJson& netIn) { netIn.Int("http_ctx_id", http_ctx_id); });
     (void)http_ctx_id;
-    return 0;
+    return netCall.Ret(0);
 }
 
 int APS5_VABI sceHttpSetChunkedTransferEnabled(int id, int enable) {
+    NetBridgeCall netCall("libSceHttp", __func__, [&](NetBridgeJson& netIn) { netIn.Int("id", id); netIn.Int("enable", enable); });
     (void)id;
     (void)enable;
-    return 0;
+    return netCall.Ret(0);
 }
 
-
 int APS5_VABI sceHttpSetInflateGZIPEnabled(int id, int enable) {
+    NetBridgeCall netCall("libSceHttp", __func__, [&](NetBridgeJson& netIn) { netIn.Int("id", id); netIn.Int("enable", enable); });
     (void)id;
-    if (static_cast<uint32_t>(enable) > 1) return ERROR_INVALID_VALUE;
-    return 0;
+    if (static_cast<uint32_t>(enable) > 1) return netCall.Ret(ERROR_INVALID_VALUE);
+    return netCall.Ret(0);
 }
 
 int APS5_VABI sceHttpSetRequestStatusCallback(int id, HttpRequestStatusCallback callback, void* argument) {
-    if (id <= 0 || id >= g_nextHandle.load(std::memory_order_relaxed)) return static_cast<int>(0x80431100u);
+    NetBridgeCall netCall("libSceHttp", __func__, [&](NetBridgeJson& netIn) { netIn.Int("id", id); });
+    if (id <= 0 || id >= g_nextHandle.load(std::memory_order_relaxed)) return netCall.Ret(static_cast<int>(0x80431100u));
     std::lock_guard lock(g_statusMutex);
     if (callback) g_statusCallbacks[id] = {callback, argument};
     else g_statusCallbacks.erase(id);
-    return 0;
+    return netCall.Ret(0);
 }
 
 int APS5_VABI sceHttpParseResponseHeader(const char* header, std::size_t headerLen, const char* fieldStr,
                                        const char** fieldValue, std::size_t* valueLen) {
+    NetBridgeCall netCall("libSceHttp", __func__, [&](NetBridgeJson& netIn) { netIn.Uint("header_len", headerLen); });
     constexpr int invalidResponse = static_cast<int>(0x80432060);
     constexpr int invalidValue = static_cast<int>(0x804321FE);
     constexpr int notFound = static_cast<int>(0x80432025);
@@ -568,301 +601,345 @@ int APS5_VABI sceHttpParseResponseHeader(const char* header, std::size_t headerL
 }
 
 int APS5_VABI sceHttpCreateRequest2(int conn_id, const char* method, const char* path, uint64_t content_length) {
+    NetBridgeCall netCall("libSceHttp", __func__, [&](NetBridgeJson& netIn) { netIn.Int("conn_id", conn_id); netIn.Text("method", method); netIn.Text("path", path); netIn.Uint("content_length", content_length); });
     (void)method;
     (void)path;
     (void)content_length;
     const int id = g_nextHandle.fetch_add(1, std::memory_order_relaxed);
     AddHttpChild(id, conn_id);
-    return id;
+    return netCall.Ret(id);
 }
 
 int APS5_VABI sceHttpsEnableOption(int id, uint32_t ssl_flags) {
+    NetBridgeCall netCall("libSceHttp", __func__, [&](NetBridgeJson& netIn) { netIn.Int("id", id); netIn.Uint("ssl_flags", ssl_flags); });
     (void)id;
     (void)ssl_flags;
-    return 0;
+    return netCall.Ret(0);
 }
 
 int APS5_VABI sceHttpsLoadCert(int http_ctx_id, int num, void* ca_list, void* cert, void* key) {
+    NetBridgeCall netCall("libSceHttp", __func__, [&](NetBridgeJson& netIn) { netIn.Int("http_ctx_id", http_ctx_id); netIn.Int("num", num); });
     (void)http_ctx_id;
     (void)num;
     (void)ca_list;
     (void)cert;
     (void)key;
-    return 0;
+    return netCall.Ret(0);
 }
 
 int APS5_VABI sceHttpsUnloadCert(int http_ctx_id) {
+    NetBridgeCall netCall("libSceHttp", __func__, [&](NetBridgeJson& netIn) { netIn.Int("http_ctx_id", http_ctx_id); });
     (void)http_ctx_id;
-    return 0;
+    return netCall.Ret(0);
 }
 
 int APS5_VABI sceHttpGetLastErrno(int request_id, int* errno_out) {
+    NetBridgeCall netCall("libSceHttp", __func__, [&](NetBridgeJson& netIn) { netIn.Int("request_id", request_id); });
     (void)request_id;
     if (errno_out == nullptr) {
-        return ERROR_INVALID_VALUE;
+        return netCall.Ret(ERROR_INVALID_VALUE);
     }
     *errno_out = 0;
-    return 0;
+    return netCall.Ret(0);
 }
 
 int APS5_VABI sceHttpsGetSslError(int id, int* err_num, uint32_t* detail) {
+    NetBridgeCall netCall("libSceHttp", __func__, [&](NetBridgeJson& netIn) { netIn.Int("id", id); });
     (void)id;
     if (err_num == nullptr || detail == nullptr) {
-        return ERROR_INVALID_VALUE;
+        return netCall.Ret(ERROR_INVALID_VALUE);
     }
     *err_num = 0;
     *detail = 0;
-    return 0;
+    return netCall.Ret(0);
 }
 
 int APS5_VABI sceHttpSetCookieRecvCallback(int id, HttpCookieRecvCallback cbfunc, void* user_arg) {
+    NetBridgeCall netCall("libSceHttp", __func__, [&](NetBridgeJson& netIn) { netIn.Int("id", id); });
     (void)id;
     (void)cbfunc;
     (void)user_arg;
-    return 0;
+    return netCall.Ret(0);
 }
 
 int APS5_VABI sceHttpsSetSslVersion(int id, int ssl_version) {
+    NetBridgeCall netCall("libSceHttp", __func__, [&](NetBridgeJson& netIn) { netIn.Int("id", id); netIn.Int("ssl_version", ssl_version); });
     (void)id;
     (void)ssl_version;
-    return 0;
+    return netCall.Ret(0);
 }
 
 int APS5_VABI sceHttpSetRedirectCallback(int id, HttpRedirectCallback cbfunc, void* user_arg) {
+    NetBridgeCall netCall("libSceHttp", __func__, [&](NetBridgeJson& netIn) { netIn.Int("id", id); });
     (void)id;
     (void)cbfunc;
     (void)user_arg;
-    return 0;
+    return netCall.Ret(0);
 }
 
 int APS5_VABI sceHttpAbortWaitRequest(HttpEpollHandle eh) {
+    NetBridgeCall netCall("libSceHttp", __func__);
     std::shared_ptr<HttpEpoll> epoll;
     {
         std::lock_guard lock(g_stateMutex);
-        if (g_contexts.empty()) return ERROR_BEFORE_INIT;
-        if (!eh) return ERROR_INVALID_VALUE;
+        if (g_contexts.empty()) return netCall.Ret(ERROR_BEFORE_INIT);
+        if (!eh) return netCall.Ret(ERROR_INVALID_VALUE);
         epoll = FindEpoll(eh);
-        if (!epoll) return ERROR_INVALID_ID;
+        if (!epoll) return netCall.Ret(ERROR_INVALID_ID);
     }
     std::lock_guard lock(epoll->mutex);
     epoll->aborted = true;
     epoll->wake.NotifyAll();
-    return 0;
+    return netCall.Ret(0);
 }
 
 int APS5_VABI sceHttpsGetCaList(int http_ctx_id, HttpsCaList* ca_list) {
+    NetBridgeCall netCall("libSceHttp", __func__, [&](NetBridgeJson& netIn) { netIn.Int("http_ctx_id", http_ctx_id); });
     (void)http_ctx_id;
-    if (!ca_list) return ERROR_INVALID_VALUE;
+    if (!ca_list) return netCall.Ret(ERROR_INVALID_VALUE);
     ca_list->certs = nullptr;
     ca_list->certsNum = 0;
-    return 0;
+    return netCall.Ret(0);
 }
 
 int APS5_VABI sceHttpsFreeCaList(int http_ctx_id, HttpsCaList* ca_list) {
+    NetBridgeCall netCall("libSceHttp", __func__, [&](NetBridgeJson& netIn) { netIn.Int("http_ctx_id", http_ctx_id); });
     (void)http_ctx_id;
-    if (!ca_list) return ERROR_INVALID_VALUE;
+    if (!ca_list) return netCall.Ret(ERROR_INVALID_VALUE);
     ca_list->certs = nullptr;
     ca_list->certsNum = 0;
-    return 0;
+    return netCall.Ret(0);
 }
 
 int APS5_VABI sceHttpAuthCacheImport(int contextId, const void* buffer, std::size_t size) {
+    NetBridgeCall netCall("libSceHttp", __func__, [&](NetBridgeJson& netIn) { netIn.Int("context_id", contextId); netIn.Uint("size", size); });
     NotImplemented_nid_no_patch(__func__);
-    return 0;
+    return netCall.Ret(0);
 }
 
 int APS5_VABI sceHttpAuthCacheExport(int contextId, void* buffer, std::size_t size, std::size_t* requiredSize) {
+    NetBridgeCall netCall("libSceHttp", __func__, [&](NetBridgeJson& netIn) { netIn.Int("context_id", contextId); netIn.Uint("size", size); });
     NotImplemented_nid_no_patch(__func__);
-    return 0;
+    return netCall.Ret(0);
 }
 
 int APS5_VABI sceHttpDbgEnableProfile(void) {
-    return 0;
+    NetBridgeCall netCall("libSceHttp", __func__);
+    return netCall.Ret(0);
 }
 
 int APS5_VABI sceHttpDbgSetPrintf(void) {
-    return 0;
+    NetBridgeCall netCall("libSceHttp", __func__);
+    return netCall.Ret(0);
 }
 
 int APS5_VABI sceHttpDbgShowStat(void) {
+    NetBridgeCall netCall("libSceHttp", __func__);
     NotImplemented_nid_no_patch(__func__);
-    return 0;
-}
-
-int APS5_VABI sceHttpGetMemoryPoolStats(int contextId, HttpMemoryPoolStats* stats) {
-    NotImplemented_nid_no_patch(__func__);
-    return 0;
+    return netCall.Ret(0);
 }
 
 int APS5_VABI sceHttpDbgShowConnectionStat(void) {
+    NetBridgeCall netCall("libSceHttp", __func__);
     NotImplemented_nid_no_patch(__func__);
-    return 0;
+    return netCall.Ret(0);
 }
 
 int APS5_VABI sceHttpDbgShowRequestStat(void) {
+    NetBridgeCall netCall("libSceHttp", __func__);
     NotImplemented_nid_no_patch(__func__);
-    return 0;
+    return netCall.Ret(0);
 }
 
 int APS5_VABI sceHttpDbgShowMemoryPoolStat(void) {
+    NetBridgeCall netCall("libSceHttp", __func__);
     NotImplemented_nid_no_patch(__func__);
-    return 0;
+    return netCall.Ret(0);
 }
 
 int APS5_VABI sceHttpDbgGetConnectionStat(std::int32_t connectionId, HttpConnectionStat* stat) {
+    NetBridgeCall netCall("libSceHttp", __func__, [&](NetBridgeJson& netIn) { netIn.Int("connection_id", connectionId); });
     NotImplemented_nid_no_patch(__func__);
-    return 0;
+    return netCall.Ret(0);
 }
 
 int APS5_VABI sceHttpDbgGetRequestStat(std::int32_t requestId, HttpRequestStat* stat) {
+    NetBridgeCall netCall("libSceHttp", __func__, [&](NetBridgeJson& netIn) { netIn.Int("request_id", requestId); });
     NotImplemented_nid_no_patch(__func__);
-    return 0;
+    return netCall.Ret(0);
 }
 
 int APS5_VABI sceHttpAddRequestHeaderRaw(int id, const char* header, int mode) {
+    NetBridgeCall netCall("libSceHttp", __func__, [&](NetBridgeJson& netIn) { netIn.Int("id", id); netIn.Int("mode", mode); });
     NotImplemented_nid_no_patch(__func__);
-    return 0;
+    return netCall.Ret(0);
 }
 
 int APS5_VABI sceHttpRemoveRequestHeader(int id, const char* name) {
+    NetBridgeCall netCall("libSceHttp", __func__, [&](NetBridgeJson& netIn) { netIn.Int("id", id); });
     (void)id;
     (void)name;
-    return 0;
+    return netCall.Ret(0);
 }
 
 int APS5_VABI sceHttpGetAuthEnabled(int id, int* enable) {
-    if (!HttpInitialised()) return ERROR_BEFORE_INIT;
-    if (!enable) return ERROR_INVALID_VALUE;
+    NetBridgeCall netCall("libSceHttp", __func__, [&](NetBridgeJson& netIn) { netIn.Int("id", id); });
+    if (!HttpInitialised()) return netCall.Ret(ERROR_BEFORE_INIT);
+    if (!enable) return netCall.Ret(ERROR_INVALID_VALUE);
     const auto options = FindHttpOptions(id);
-    if (!options) return ERROR_INVALID_ID;
+    if (!options) return netCall.Ret(ERROR_INVALID_ID);
     *enable = options->authEnabled ? 1 : 0;
-    return 0;
+    return netCall.Ret(0);
 }
 
 int APS5_VABI sceHttpSetEpollId(std::int32_t id, std::int32_t epollId, void* userArg) {
+    NetBridgeCall netCall("libSceHttp", __func__, [&](NetBridgeJson& netIn) { netIn.Int("id", id); netIn.Int("epoll_id", epollId); });
     NotImplemented_nid_no_patch(__func__);
-    return 0;
+    return netCall.Ret(0);
 }
 
 int APS5_VABI sceHttpGetEpollId(std::int32_t id, std::int32_t* epollId, void** userArg) {
+    NetBridgeCall netCall("libSceHttp", __func__, [&](NetBridgeJson& netIn) { netIn.Int("id", id); });
     NotImplemented_nid_no_patch(__func__);
-    return 0;
+    return netCall.Ret(0);
 }
 
 int APS5_VABI sceHttpGetCookie(int contextId, const char* url, char* cookie, std::size_t* requiredSize, std::size_t size) {
+    NetBridgeCall netCall("libSceHttp", __func__, [&](NetBridgeJson& netIn) { netIn.Int("context_id", contextId); netIn.Text("url", url); netIn.Uint("size", size); });
     NotImplemented_nid_no_patch(__func__);
-    return 0;
+    return netCall.Ret(0);
 }
 
 int APS5_VABI sceHttpGetCookieEnabled(int id, int* enable) {
-    if (!HttpInitialised()) return ERROR_BEFORE_INIT;
-    if (!enable) return ERROR_INVALID_VALUE;
+    NetBridgeCall netCall("libSceHttp", __func__, [&](NetBridgeJson& netIn) { netIn.Int("id", id); });
+    if (!HttpInitialised()) return netCall.Ret(ERROR_BEFORE_INIT);
+    if (!enable) return netCall.Ret(ERROR_INVALID_VALUE);
     const auto options = FindHttpOptions(id);
-    if (!options) return ERROR_INVALID_ID;
+    if (!options) return netCall.Ret(ERROR_INVALID_ID);
     *enable = options->cookieEnabled ? 1 : 0;
-    return 0;
+    return netCall.Ret(0);
 }
 
 int APS5_VABI sceHttpAddCookie(int contextId, const char* url, const char* cookie, std::size_t size) {
+    NetBridgeCall netCall("libSceHttp", __func__, [&](NetBridgeJson& netIn) { netIn.Int("context_id", contextId); netIn.Text("url", url); netIn.Uint("size", size); });
     NotImplemented_nid_no_patch(__func__);
-    return 0;
+    return netCall.Ret(0);
 }
 
 int APS5_VABI sceHttpSetCookieSendCallback(std::int32_t id, HttpCookieSendCallback callback, void* userArg) {
+    NetBridgeCall netCall("libSceHttp", __func__, [&](NetBridgeJson& netIn) { netIn.Int("id", id); });
     NotImplemented_nid_no_patch(__func__);
-    return 0;
+    return netCall.Ret(0);
 }
 
 int APS5_VABI sceHttpCookieExport(int contextId, void* buffer, std::size_t size, std::size_t* requiredSize) {
+    NetBridgeCall netCall("libSceHttp", __func__, [&](NetBridgeJson& netIn) { netIn.Int("context_id", contextId); netIn.Uint("size", size); });
     NotImplemented_nid_no_patch(__func__);
-    return 0;
+    return netCall.Ret(0);
 }
 
 int APS5_VABI sceHttpCookieImport(int contextId, const void* buffer, std::size_t size) {
+    NetBridgeCall netCall("libSceHttp", __func__, [&](NetBridgeJson& netIn) { netIn.Int("context_id", contextId); netIn.Uint("size", size); });
     NotImplemented_nid_no_patch(__func__);
-    return 0;
+    return netCall.Ret(0);
 }
 
 int APS5_VABI sceHttpSetCookieTotalMaxSize(int contextId, std::uint32_t size) {
+    NetBridgeCall netCall("libSceHttp", __func__, [&](NetBridgeJson& netIn) { netIn.Int("context_id", contextId); netIn.Uint("size", size); });
     NotImplemented_nid_no_patch(__func__);
-    return 0;
+    return netCall.Ret(0);
 }
 
 int APS5_VABI sceHttpSetCookieMaxSize(int contextId, std::uint32_t size) {
+    NetBridgeCall netCall("libSceHttp", __func__, [&](NetBridgeJson& netIn) { netIn.Int("context_id", contextId); netIn.Uint("size", size); });
     NotImplemented_nid_no_patch(__func__);
-    return 0;
+    return netCall.Ret(0);
 }
 
 int APS5_VABI sceHttpSetCookieMaxNum(int contextId, std::uint32_t count) {
+    NetBridgeCall netCall("libSceHttp", __func__, [&](NetBridgeJson& netIn) { netIn.Int("context_id", contextId); netIn.Uint("count", count); });
     NotImplemented_nid_no_patch(__func__);
-    return 0;
+    return netCall.Ret(0);
 }
 
 int APS5_VABI sceHttpSetCookieMaxNumPerDomain(int contextId, std::uint32_t count) {
+    NetBridgeCall netCall("libSceHttp", __func__, [&](NetBridgeJson& netIn) { netIn.Int("context_id", contextId); netIn.Uint("count", count); });
     NotImplemented_nid_no_patch(__func__);
-    return 0;
+    return netCall.Ret(0);
 }
 
 int APS5_VABI sceHttpGetCookieStats(int id, HttpCookieStats* stats) {
+    NetBridgeCall netCall("libSceHttp", __func__, [&](NetBridgeJson& netIn) { netIn.Int("id", id); });
     NotImplemented_nid_no_patch(__func__);
-    return 0;
+    return netCall.Ret(0);
 }
 
 int APS5_VABI sceHttpSetPriorityOption(int id, int priority) {
+    NetBridgeCall netCall("libSceHttp", __func__, [&](NetBridgeJson& netIn) { netIn.Int("id", id); netIn.Int("priority", priority); });
     NotImplemented_nid_no_patch(__func__);
-    return 0;
+    return netCall.Ret(0);
 }
 
 int APS5_VABI sceHttpSetPolicyOption(int id, int policy) {
+    NetBridgeCall netCall("libSceHttp", __func__, [&](NetBridgeJson& netIn) { netIn.Int("id", id); netIn.Int("policy", policy); });
     NotImplemented_nid_no_patch(__func__);
-    return 0;
+    return netCall.Ret(0);
 }
 
 int APS5_VABI sceHttpRequestGetAllHeaders(int requestId, HttpRequestHeader* headers, std::uint32_t* headerCount, char* contentLength, std::size_t* contentLengthSize) {
+    NetBridgeCall netCall("libSceHttp", __func__, [&](NetBridgeJson& netIn) { netIn.Int("request_id", requestId); });
     NotImplemented_nid_no_patch(__func__);
-    return 0;
+    return netCall.Ret(0);
 }
 
 int APS5_VABI sceHttpSetDefaultAcceptEncodingGZIPEnabled(int http_ctx_id, int enable) {
+    NetBridgeCall netCall("libSceHttp", __func__, [&](NetBridgeJson& netIn) { netIn.Int("http_ctx_id", http_ctx_id); netIn.Int("enable", enable); });
     std::lock_guard lock(g_stateMutex);
-    if (g_contexts.empty()) return ERROR_BEFORE_INIT;
-    return SetHttpContextAcceptEncodingGzip(http_ctx_id, enable != 0) ? 0 : ERROR_INVALID_ID;
+    if (g_contexts.empty()) return netCall.Ret(ERROR_BEFORE_INIT);
+    return netCall.Ret(SetHttpContextAcceptEncodingGzip(http_ctx_id, enable != 0) ? 0 : ERROR_INVALID_ID);
 }
 
 int APS5_VABI sceHttpSetProxy(int id, int, int, const char* hostname, std::uint16_t) {
-    if (!HttpInitialised()) return ERROR_BEFORE_INIT;
-    if (!hostname) return ERROR_INVALID_VALUE;
-    return FindHttpOptions(id) ? 0 : ERROR_INVALID_ID;
+    NetBridgeCall netCall("libSceHttp", __func__, [&](NetBridgeJson& netIn) { netIn.Int("id", id); netIn.Text("hostname", hostname); });
+    if (!HttpInitialised()) return netCall.Ret(ERROR_BEFORE_INIT);
+    if (!hostname) return netCall.Ret(ERROR_INVALID_VALUE);
+    return netCall.Ret(FindHttpOptions(id) ? 0 : ERROR_INVALID_ID);
 }
 
 int APS5_VABI sceHttpSetSocketCreationCallback(std::int32_t id, HttpSocketCreationCallback callback, void* userArg) {
+    NetBridgeCall netCall("libSceHttp", __func__, [&](NetBridgeJson& netIn) { netIn.Int("id", id); });
     NotImplemented_nid_no_patch(__func__);
-    return 0;
+    return netCall.Ret(0);
 }
 
 int APS5_VABI sceHttpSetHttp09Enabled(int id, int enabled) {
+    NetBridgeCall netCall("libSceHttp", __func__, [&](NetBridgeJson& netIn) { netIn.Int("id", id); netIn.Int("enabled", enabled); });
     NotImplemented_nid_no_patch(__func__);
-    return 0;
+    return netCall.Ret(0);
 }
 
 int APS5_VABI sceHttpGetRegisteredCtxIds(int contextId, int* netPoolId, int* sslContextId) {
+    NetBridgeCall netCall("libSceHttp", __func__, [&](NetBridgeJson& netIn) { netIn.Int("context_id", contextId); });
     NotImplemented_nid_no_patch(__func__);
-    return 0;
+    return netCall.Ret(0);
 }
 
 int APS5_VABI sceHttpGetConnectionStat(std::int32_t connectionId, HttpConnectionStat* stat) {
+    NetBridgeCall netCall("libSceHttp", __func__, [&](NetBridgeJson& netIn) { netIn.Int("connection_id", connectionId); });
     NotImplemented_nid_no_patch(__func__);
-    return 0;
+    return netCall.Ret(0);
 }
 
 int APS5_VABI sceHttpAddQuery(int id, const char* query) {
+    NetBridgeCall netCall("libSceHttp", __func__, [&](NetBridgeJson& netIn) { netIn.Int("id", id); });
     NotImplemented_nid_no_patch(__func__);
-    return 0;
+    return netCall.Ret(0);
 }
 
 int APS5_VABI sceHttpSetDelayBuildRequestEnabled(int id, int enabled) {
+    NetBridgeCall netCall("libSceHttp", __func__, [&](NetBridgeJson& netIn) { netIn.Int("id", id); netIn.Int("enabled", enabled); });
     NotImplemented_nid_no_patch(__func__);
-    return 0;
+    return netCall.Ret(0);
 }
 
 }

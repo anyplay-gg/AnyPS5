@@ -1,15 +1,15 @@
+#include "prx/libSceNpUniversalDataSystem/include/Api.hpp"
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <memory>
-#include <mutex>
-#include <set>
 #include <stdexcept>
 #include <string>
 
 #include "NpUniversalDataSystem.hpp"
+#include "prx/libSceNetCtl/include/NetBridge.hpp"
 #include "SceTypes.hpp"
 #include "prx/libSceNpTrophy2/include/TrophyStore.hpp"
 #include "prx/libc/include/General.hpp"
@@ -19,13 +19,6 @@ namespace {
 Uds::Owned<NpUniversalDataSystemEvent>& events() {
     static Uds::Owned<NpUniversalDataSystemEvent> registry;
     return registry;
-}
-
-bool firstProgress(std::int32_t trophyId) {
-    static std::mutex mutex;
-    static std::set<std::int32_t> logged;
-    std::lock_guard lock(mutex);
-    return logged.insert(trophyId).second;
 }
 
 void ignore(const NpUniversalDataSystemEvent& event, int context, const std::string& reason) {
@@ -38,13 +31,11 @@ void post(const NpUniversalDataSystemEvent& event, int context) {
     const auto trophy = Uds::RecognizeTrophyEvent(event);
     switch (trophy.kind) {
     case Uds::TrophyEventKind::None:
+    case Uds::TrophyEventKind::Progress:
         if (const auto owner = Uds::FindContext(context)) NpTrophy2ApplyEvent_nid_no_patch(owner->userId, owner->serviceLabel, Uds::StatEvent(event));
         return;
     case Uds::TrophyEventKind::Malformed:
         ignore(event, context, trophy.problem);
-        return;
-    case Uds::TrophyEventKind::Progress:
-        if (firstProgress(trophy.trophyId)) ignore(event, context, "trophy progress is not recorded");
         return;
     case Uds::TrophyEventKind::Unlock:
         if (const auto owner = Uds::FindContext(context)) NpTrophy2RecordUnlock_nid_no_patch(owner->userId, owner->serviceLabel, trophy.trophyId);
@@ -63,6 +54,7 @@ int APS5_VABI sceNpUniversalDataSystemCreateEvent(
     NpUniversalDataSystemEvent** new_event,
     NpUniversalDataSystemEventPropertyObject** prop_ptr)
 {
+    NetBridgeCall netCall("libSceNpUniversalDataSystem", __func__);
     if (event_name == nullptr || new_event == nullptr) {
         APS5_INVALID_ARG_EX;
     }
@@ -73,15 +65,17 @@ int APS5_VABI sceNpUniversalDataSystemCreateEvent(
     if (prop_ptr != nullptr) {
         *prop_ptr = &(*new_event)->properties;
     }
-    return SCE_NP_UNIVERSAL_DATA_SYSTEM_OK;
+    return netCall.Ret(SCE_NP_UNIVERSAL_DATA_SYSTEM_OK);
 }
 
 int APS5_VABI sceNpUniversalDataSystemDestroyEvent(NpUniversalDataSystemEvent* event) {
+    NetBridgeCall netCall("libSceNpUniversalDataSystem", __func__);
     events().Release(event);
-    return SCE_NP_UNIVERSAL_DATA_SYSTEM_OK;
+    return netCall.Ret(SCE_NP_UNIVERSAL_DATA_SYSTEM_OK);
 }
 
 int APS5_VABI sceNpUniversalDataSystemPostEvent(int context, int handle, const void* event, uint64_t options) {
+    NetBridgeCall netCall("libSceNpUniversalDataSystem", __func__, [&](NetBridgeJson& netIn) { netIn.Int("context", context); netIn.Int("handle", handle); netIn.Uint("options", options); });
     if (event == nullptr) {
         APS5_INVALID_ARG_EX;
     }
@@ -90,15 +84,16 @@ int APS5_VABI sceNpUniversalDataSystemPostEvent(int context, int handle, const v
         throw std::invalid_argument(std::string(__func__) + ": the event was not created by sceNpUniversalDataSystemCreateEvent or was destroyed");
     }
     post(*posted, context);
-    return SCE_NP_UNIVERSAL_DATA_SYSTEM_OK;
+    return netCall.Ret(SCE_NP_UNIVERSAL_DATA_SYSTEM_OK);
 }
 
 int APS5_VABI sceNpUniversalDataSystemEventEstimateSize(const NpUniversalDataSystemEvent* event, size_t* size) {
+    NetBridgeCall netCall("libSceNpUniversalDataSystem", __func__);
     if (event == nullptr || size == nullptr) {
         APS5_INVALID_ARG_EX;
     }
     *size = NP_UNIVERSAL_DATA_SYSTEM_EMPTY_EVENT_SIZE;
-    return SCE_NP_UNIVERSAL_DATA_SYSTEM_OK;
+    return netCall.Ret(SCE_NP_UNIVERSAL_DATA_SYSTEM_OK);
 }
 
 int APS5_VABI sceNpUniversalDataSystemEventToString(
@@ -107,6 +102,7 @@ int APS5_VABI sceNpUniversalDataSystemEventToString(
     size_t buf_size,
     size_t* string_size)
 {
+    NetBridgeCall netCall("libSceNpUniversalDataSystem", __func__, [&](NetBridgeJson& netIn) { netIn.Uint("buf_size", buf_size); });
     if (event == nullptr) {
         APS5_INVALID_ARG_EX;
     }
@@ -117,7 +113,7 @@ int APS5_VABI sceNpUniversalDataSystemEventToString(
     if (buf != nullptr && buf_size > 0) {
         std::snprintf(buf, buf_size, "%s", NP_UNIVERSAL_DATA_SYSTEM_EMPTY_JSON);
     }
-    return SCE_NP_UNIVERSAL_DATA_SYSTEM_OK;
+    return netCall.Ret(SCE_NP_UNIVERSAL_DATA_SYSTEM_OK);
 }
 
 }

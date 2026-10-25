@@ -1,3 +1,4 @@
+#include "prx/libSceNpAuth/include/Api.hpp"
 #include <atomic>
 #include <array>
 #include <cstddef>
@@ -78,8 +79,16 @@ int APS5_VABI sceNpAuthGetAuthorizedAppCode(std::int32_t requestId, const NpAuth
  if (parameter->size != sizeof(NpAuthAuthorizedAppCodeParameter)) return netCall.Ret(static_cast<int>(0x80550302u));
  if (parameter->userId == -1 || parameter->clientId == nullptr || parameter->scope == nullptr || parameter->option > 1) return netCall.Ret(ORBIS_NP_AUTH_ERROR_INVALID_ARGUMENT);
  std::lock_guard lock(g_requestMutex);
- if (!g_requests.contains(requestId)) return netCall.Ret(ORBIS_NP_AUTH_ERROR_REQUEST_NOT_FOUND);
- throw std::logic_error("sceNpAuthGetAuthorizedAppCode: authorization backend is not implemented");
+ auto it = g_requests.find(requestId);
+ if (it == g_requests.end()) return netCall.Ret(ORBIS_NP_AUTH_ERROR_REQUEST_NOT_FOUND);
+ if (it->second.processed) return netCall.Ret(ORBIS_NP_AUTH_ERROR_INVALID_ARGUMENT);
+ if (it->second.aborted) return netCall.Ret(ORBIS_NP_AUTH_ERROR_ABORTED);
+ it->second.processed = true;
+ if (it->second.isAsync) {
+  it->second.result = SCE_NP_ERROR_SIGNED_OUT;
+  return netCall.Ret(0);
+ }
+ return netCall.Ret(SCE_NP_ERROR_SIGNED_OUT);
 }
 
 int APS5_VABI sceNpAuthGetAuthorizationCodeV3(int req_id, const void* param, void* auth_code, int* issuer_id) {

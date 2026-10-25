@@ -1,4 +1,5 @@
 add_library(libSceNpUniversalDataSystem SHARED EXCLUDE_FROM_ALL
+        ${CMAKE_CURRENT_SOURCE_DIR}/PendingExports.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/src/System.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/src/Context.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/src/Handle.cpp
@@ -24,7 +25,7 @@ add_test_executable(np_uds_events_tests EXCLUDE_FROM_ALL
         src/UdsEvent.cpp
 )
 target_include_directories(np_uds_events_tests PRIVATE ${LIBS_INCLUDE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/src)
-target_link_libraries(np_uds_events_tests PRIVATE libSceNpTrophy2 libc)
+target_link_libraries(np_uds_events_tests PRIVATE libSceNpTrophy2 libSceNetCtl libc)
 configure_windows_unwind(np_uds_events_tests)
 if(BUILD_TESTING)
     set_target_properties(np_uds_events_tests PROPERTIES EXCLUDE_FROM_ALL FALSE)
