@@ -1765,100 +1765,124 @@ int APS5_VABI _ZN3sce2Np9CppWebApi6Common11TransactionINS2_15DefaultResponseENS2
 }
 
 int APS5_VABI _ZN3sce2Np9CppWebApi6Common13ConstIteratorINS2_12IntrusivePtrINS1_13InGameCatalog2V57ProductEEEED2Ev(void* self) {
+    NetBridgeCall netCall("libSceNpCppWebApi", __func__);
     (void)self;
-    return 0;
+    return netCall.Ret(0);
 }
 
 int APS5_VABI _ZN3sce2Np9CppWebApi6Common13ConstIteratorINS2_12IntrusivePtrINS1_17TitleCloudStorage2V110DataStatusEEEED2Ev(void* self) {
+    NetBridgeCall netCall("libSceNpCppWebApi", __func__);
     (void)self;
-    return 0;
+    return netCall.Ret(0);
 }
 
 void APS5_VABI _ZN3sce2Np9CppWebApi6Common12IntrusivePtrINS2_6VectorINS3_INS1_13InGameCatalog2V59ContainerEEEEEEC1Ev(IntrusivePtr* self) {
+    NetBridgeCall netCall("libSceNpCppWebApi", __func__);
     *self = {};
 }
 
 void* APS5_VABI _ZNK3sce2Np9CppWebApi6Common12IntrusivePtrINS2_6VectorINS3_INS1_13InGameCatalog2V59ContainerEEEEEEdeEv(const IntrusivePtr* self) {
-    return self->object;
+    NetBridgeCall netCall("libSceNpCppWebApi", __func__);
+    return netCall.Ret(self->object);
 }
 
 void* APS5_VABI _ZNK3sce2Np9CppWebApi6Common12IntrusivePtrINS2_6VectorINS3_INS1_13InGameCatalog2V59ContainerEEEEEEptEv(const IntrusivePtr* self) {
-    return self->object;
+    NetBridgeCall netCall("libSceNpCppWebApi", __func__);
+    return netCall.Ret(self->object);
 }
 
 void APS5_VABI _ZN3sce2Np9CppWebApi6Common12IntrusivePtrINS2_6VectorINS3_INS1_13InGameCatalog2V59ContainerEEEEEED1Ev(IntrusivePtr* self) {
+    NetBridgeCall netCall("libSceNpCppWebApi", __func__);
     ReleaseIntrusivePtr(self, 0x30, __func__);
 }
 
 void* APS5_VABI _ZNK3sce2Np9CppWebApi6Common12IntrusivePtrINS2_6VectorINS3_INS1_13InGameCatalog2V57ProductEEEEEEptEv(const IntrusivePtr* self) {
-    return self->object;
+    NetBridgeCall netCall("libSceNpCppWebApi", __func__);
+    return netCall.Ret(self->object);
 }
 
 void APS5_VABI _ZN3sce2Np9CppWebApi6Common12IntrusivePtrINS2_6VectorINS3_INS1_13InGameCatalog2V57ProductEEEEEED1Ev(IntrusivePtr* self) {
+    NetBridgeCall netCall("libSceNpCppWebApi", __func__);
     ReleaseIntrusivePtr(self, 0x30, __func__);
 }
 
 void* APS5_VABI _ZNK3sce2Np9CppWebApi6Common12IntrusivePtrINS2_6VectorINS3_INS1_13InGameCatalog2V53SkuEEEEEEptEv(const IntrusivePtr* self) {
-    return self->object;
+    NetBridgeCall netCall("libSceNpCppWebApi", __func__);
+    return netCall.Ret(self->object);
 }
 
 void APS5_VABI _ZN3sce2Np9CppWebApi6Common12IntrusivePtrINS2_6VectorINS3_INS1_13InGameCatalog2V53SkuEEEEEED1Ev(IntrusivePtr* self) {
+    NetBridgeCall netCall("libSceNpCppWebApi", __func__);
     ReleaseIntrusivePtr(self, 0x30, __func__);
 }
 
 void* APS5_VABI _ZNK3sce2Np9CppWebApi6Common12IntrusivePtrINS2_6VectorINS3_INS1_17TitleCloudStorage2V110DataStatusEEEEEEdeEv(const IntrusivePtr* self) {
-    return self->object;
+    NetBridgeCall netCall("libSceNpCppWebApi", __func__);
+    return netCall.Ret(self->object);
 }
 
 void APS5_VABI _ZN3sce2Np9CppWebApi6Common12IntrusivePtrINS2_6VectorINS3_INS1_17TitleCloudStorage2V110DataStatusEEEEEED1Ev(IntrusivePtr* self) {
+    NetBridgeCall netCall("libSceNpCppWebApi", __func__);
     ReleaseIntrusivePtr(self, 0x30, __func__);
 }
 
 void APS5_VABI _ZN3sce2Np9CppWebApi6Common12IntrusivePtrINS1_13InGameCatalog2V59ContainerEEC1ERS7_(IntrusivePtr* self, const IntrusivePtr* source) {
+    NetBridgeCall netCall("libSceNpCppWebApi", __func__);
     CopyIntrusivePtr(self, source, 0x00);
 }
 
 void* APS5_VABI _ZNK3sce2Np9CppWebApi6Common12IntrusivePtrINS1_13InGameCatalog2V59ContainerEEptEv(const IntrusivePtr* self) {
-    return self->object;
+    NetBridgeCall netCall("libSceNpCppWebApi", __func__);
+    return netCall.Ret(self->object);
 }
 
 void APS5_VABI _ZN3sce2Np9CppWebApi6Common12IntrusivePtrINS1_13InGameCatalog2V59ContainerEED1Ev(IntrusivePtr* self) {
+    NetBridgeCall netCall("libSceNpCppWebApi", __func__);
     ReleaseIntrusivePtr(self, 0x00, __func__);
 }
 
 void APS5_VABI _ZN3sce2Np9CppWebApi6Common12IntrusivePtrINS1_13InGameCatalog2V57ProductEEC1ERS7_(IntrusivePtr* self, const IntrusivePtr* source) {
+    NetBridgeCall netCall("libSceNpCppWebApi", __func__);
     CopyIntrusivePtr(self, source, 0x00);
 }
 
 void* APS5_VABI _ZNK3sce2Np9CppWebApi6Common12IntrusivePtrINS1_13InGameCatalog2V57ProductEEptEv(const IntrusivePtr* self) {
-    return self->object;
+    NetBridgeCall netCall("libSceNpCppWebApi", __func__);
+    return netCall.Ret(self->object);
 }
 
 void APS5_VABI _ZN3sce2Np9CppWebApi6Common12IntrusivePtrINS1_13InGameCatalog2V57ProductEED1Ev(IntrusivePtr* self) {
+    NetBridgeCall netCall("libSceNpCppWebApi", __func__);
     ReleaseIntrusivePtr(self, 0x00, __func__);
 }
 
 void* APS5_VABI _ZNK3sce2Np9CppWebApi6Common12IntrusivePtrINS1_17TitleCloudStorage2V110DataStatusEEptEv(const IntrusivePtr* self) {
-    return self->object;
+    NetBridgeCall netCall("libSceNpCppWebApi", __func__);
+    return netCall.Ret(self->object);
 }
 
 void APS5_VABI _ZN3sce2Np9CppWebApi6Common12IntrusivePtrINS1_17TitleCloudStorage2V132GetMultiDataStatusesResponseBodyEEC1Ev(IntrusivePtr* self) {
+    NetBridgeCall netCall("libSceNpCppWebApi", __func__);
     *self = {};
 }
 
 void* APS5_VABI _ZNK3sce2Np9CppWebApi6Common12IntrusivePtrINS1_17TitleCloudStorage2V132GetMultiDataStatusesResponseBodyEEptEv(const IntrusivePtr* self) {
-    return self->object;
+    NetBridgeCall netCall("libSceNpCppWebApi", __func__);
+    return netCall.Ret(self->object);
 }
 
 void APS5_VABI _ZN3sce2Np9CppWebApi6Common12IntrusivePtrINS1_17TitleCloudStorage2V132GetMultiDataStatusesResponseBodyEED1Ev(IntrusivePtr* self) {
+    NetBridgeCall netCall("libSceNpCppWebApi", __func__);
     ReleaseIntrusivePtr(self, 0x00, __func__);
 }
 
 void* APS5_VABI _ZNK3sce2Np9CppWebApi6Common12IntrusivePtrINS1_17TitleCloudStorage2V15OwnerEEptEv(const IntrusivePtr* self) {
-    return self->object;
+    NetBridgeCall netCall("libSceNpCppWebApi", __func__);
+    return netCall.Ret(self->object);
 }
 
 void APS5_VABI _ZN3sce2Np9CppWebApi6Common12IntrusivePtrINS1_17TitleCloudStorage2V15OwnerEED1Ev(IntrusivePtr* self) {
+    NetBridgeCall netCall("libSceNpCppWebApi", __func__);
     ReleaseIntrusivePtr(self, 0x00, __func__);
 }
 }
