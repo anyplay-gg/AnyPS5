@@ -739,7 +739,6 @@ int APS5_VABI sceHttpDbgShowStat(void) {
     return netCall.Ret(0);
 }
 
-    NetBridgeCall netCall("libSceHttp", __func__, [&](NetBridgeJson& netIn) { netIn.Int("context_id", contextId); });
 int APS5_VABI sceHttpDbgShowConnectionStat(void) {
     NetBridgeCall netCall("libSceHttp", __func__);
     NotImplemented_nid_no_patch(__func__);
