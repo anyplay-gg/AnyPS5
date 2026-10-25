@@ -1107,7 +1107,10 @@ const bool g_socketPollerRegistered = (KernelSetSocketPoller_nid_no_patch(&PollS
 bool CloseSocketForKernel(int descriptor, int* error) {
     {
         std::lock_guard lk(g_mutex);
-        if (g_socks.count(descriptor) == 0) return false;
+        if (g_socks.count(descriptor) == 0) {
+            for (auto& epoll : g_epoll_socks) epoll.second.erase(descriptor);
+            return false;
+        }
     }
     *error = sceNetSocketClose(descriptor) == 0 ? 0 : *errno_slot();
     return true;
@@ -2290,13 +2293,19 @@ int APS5_VABI sceNetEpollAbort(int eid, int flags) {
 
 int APS5_VABI sceNetEpollControl(int eid, int op, int id, const NetEpollEvent* event) {
     NetBridgeCall netCall("libSceNet", __func__, [&](NetBridgeJson& netIn) { netIn.Int("eid", eid); netIn.Int("op", op); netIn.Int("id", id); });
+    bool kernel = false;
+    {
+        std::lock_guard lk(g_mutex);
+        kernel = g_socks.count(id) == 0;
+    }
+    kernel = kernel && GuestSocketIsOpen_nid_no_patch(id);
     std::lock_guard lk(g_mutex);
     if (g_epolls.count(eid) == 0) {
         return netCall.Ret(fail(NET_EBADF));
     }
     if (op != NET_EPOLL_CTL_ADD && op != NET_EPOLL_CTL_MOD && op != NET_EPOLL_CTL_DEL) return netCall.Ret(fail(NET_EINVAL));
     if (op != NET_EPOLL_CTL_DEL && !event) return netCall.Ret(fail(NET_EINVAL));
-    if (g_socks.count(id) == 0) return netCall.Ret(fail(NET_EBADF));
+    if (!kernel && g_socks.count(id) == 0) return netCall.Ret(fail(NET_EBADF));
     auto& registrations = g_epoll_socks[eid];
     if (op == NET_EPOLL_CTL_ADD) {
         if (registrations.count(id) != 0) return netCall.Ret(fail(NET_EADDRINUSE));
@@ -2319,12 +2328,15 @@ int APS5_VABI sceNetEpollWait(int eid, NetEpollEvent* events, int maxevents, int
         int descriptor;
         std::shared_ptr<const NetEpollEvent> registration;
         Sock socket;
+        std::shared_ptr<void> kernelOwner;
+        NativeSocket native = INVALID_NATIVE_SOCKET;
     };
     const auto deadline = timeout > 0
         ? std::chrono::steady_clock::now() + std::chrono::microseconds(timeout)
         : std::chrono::steady_clock::time_point::max();
     for (;;) {
         std::vector<Watch> watches;
+        std::vector<Watch> kernelWatches;
         {
             std::lock_guard lk(g_mutex);
             if (g_epolls.count(eid) == 0) return netCall.Ret(fail(NET_EBADF));
@@ -2333,8 +2345,29 @@ int APS5_VABI sceNetEpollWait(int eid, NetEpollEvent* events, int maxevents, int
             if (registration != g_epoll_socks.end()) {
                 for (const auto& entry : registration->second) {
                     const auto socket = g_socks.find(entry.first);
-                    if (socket == g_socks.end()) continue;
-                    watches.push_back({entry.first, entry.second, socket->second});
+                    if (socket == g_socks.end()) kernelWatches.push_back({entry.first, entry.second, Sock{}, nullptr, INVALID_NATIVE_SOCKET});
+                    else watches.push_back({entry.first, entry.second, socket->second, nullptr, socket->second.native->value});
+                }
+            }
+        }
+        std::vector<Watch> closedWatches;
+        for (auto& watch : kernelWatches) {
+            std::uintptr_t native = 0;
+            if (KernelLookupSocketNative_nid_no_patch(watch.descriptor, &watch.kernelOwner, &native)) {
+                watch.native = static_cast<NativeSocket>(native);
+                watches.push_back(std::move(watch));
+            } else {
+                closedWatches.push_back(std::move(watch));
+            }
+        }
+        if (!closedWatches.empty()) {
+            std::lock_guard lk(g_mutex);
+            const auto registration = g_epoll_socks.find(eid);
+            if (registration != g_epoll_socks.end()) {
+                for (const auto& watch : closedWatches) {
+                    const auto entry = registration->second.find(watch.descriptor);
+                    if (entry != registration->second.end() && entry->second == watch.registration && g_socks.count(watch.descriptor) == 0)
+                        registration->second.erase(entry);
                 }
             }
         }
@@ -2352,14 +2385,14 @@ int APS5_VABI sceNetEpollWait(int eid, NetEpollEvent* events, int maxevents, int
 #ifdef _WIN32
         std::vector<WSAPOLLFD> descriptors(watches.size());
         for (std::size_t index = 0; index < descriptors.size(); ++index) {
-            descriptors[index].fd = watches[index].socket.native->value;
+            descriptors[index].fd = watches[index].native;
             if (watches[index].registration->events & 1) descriptors[index].events |= POLLRDNORM;
             if (watches[index].registration->events & 2) descriptors[index].events |= POLLWRNORM;
         }
 #else
         std::vector<pollfd> descriptors(watches.size());
         for (std::size_t index = 0; index < descriptors.size(); ++index) {
-            descriptors[index].fd = watches[index].socket.native->value;
+            descriptors[index].fd = watches[index].native;
             if (watches[index].registration->events & 1) descriptors[index].events |= POLLIN;
             if (watches[index].registration->events & 2) descriptors[index].events |= POLLOUT;
         }
@@ -2375,7 +2408,8 @@ int APS5_VABI sceNetEpollWait(int eid, NetEpollEvent* events, int maxevents, int
 #ifdef _WIN32
         const int ready_count = WSAPoll(descriptors.data(), static_cast<ULONG>(descriptors.size()), wait_ms);
         for (std::size_t index = 0; index < descriptors.size(); ++index)
-            descriptors[index].revents = closed_stream_events(watches[index].socket, descriptors[index].revents, descriptors[index].events);
+            if (!watches[index].kernelOwner)
+                descriptors[index].revents = closed_stream_events(watches[index].socket, descriptors[index].revents, descriptors[index].events);
 #else
         const int ready_count = ::poll(descriptors.data(), descriptors.size(), wait_ms);
 #endif
