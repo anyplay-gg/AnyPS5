@@ -1,0 +1,177 @@
+name: Nightly
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+    paths:
+      - .github/workflows/nightly.yml
+      - tools/package_release.py
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nightly-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name != 'push' }}
+
+env:
+  CONFIGURE: >-
+    -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF
+    -DCMAKE_C_COMPILER=gcc -DCMAKE_CXX_COMPILER=g++
+    -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+  WINLIBS_RELEASE: 15.2.0posix-14.0.0-ucrt-r7
+  WINLIBS_ZIP: winlibs-x86_64-posix-seh-gcc-15.2.0-mingw-w64ucrt-14.0.0-r7.zip
+
+jobs:
+  windows:
+    name: Toolkit (windows)
+    runs-on: windows-latest
+    timeout-minutes: 120
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          submodules: recursive
+      - name: Point the WinLibs CMake at the CA bundle of Git for Windows
+        run: |
+          for prefix in ucrt64 mingw64; do
+            bundle="C:/Program Files/Git/$prefix/etc/ssl/certs/ca-bundle.crt"
+            if [ -f "$bundle" ]; then echo "SSL_CERT_FILE=$bundle" >> "$GITHUB_ENV"; exit 0; fi
+          done
+          echo "::error::No CA bundle found in Git for Windows"; exit 1
+      - id: toolchain
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: C:\winlibs
+          key: ${{ env.WINLIBS_ZIP }}
+      - if: steps.toolchain.outputs.cache-hit != 'true'
+        run: |
+          curl -sSfL -o "$RUNNER_TEMP/winlibs.zip" "https://github.com/brechtsanders/winlibs_mingw/releases/download/$WINLIBS_RELEASE/$WINLIBS_ZIP"
+          7z x "$RUNNER_TEMP/winlibs.zip" -oC:/winlibs > /dev/null
+      - run: echo 'C:\winlibs\mingw64\bin' >> "$GITHUB_PATH"
+      - uses: hendrikmuhs/ccache-action@f09c25b45002a07be2955cbe52e8cee55643f89d # v1.2.24
+        with:
+          key: nightly-windows
+          save: ${{ github.event_name != 'pull_request' }}
+          evict-old-files: job
+      - shell: cmd
+        run: cmake -S . -B build %CONFIGURE%
+      - name: Build the relinker and the patched libraries
+        shell: cmd
+        run: cmake --build build --target relinker libs
+      - name: Pack the toolkit
+        run: |
+          short="${GITHUB_SHA::7}"
+          python tools/package_release.py --platform windows --build build --output stage --version vnightly
+          mkdir -p dist toolkit
+          7z x stage/prx-windows-vnightly.zip -otoolkit > /dev/null
+          cp build/core/relinker/relinker.exe toolkit/relinker.exe
+          echo "anyplay-$short" > toolkit/version.txt
+          (cd toolkit && 7z a -tzip -mx=9 "../dist/AnyPlay-toolkit-windows-$short.zip" . > /dev/null)
+          cp stage/relinker-vnightly.exe dist/relinker-nightly.exe
+          cp stage/prx-windows-vnightly.zip dist/prx-windows-nightly.zip
+          ls -l dist
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: nightly-windows
+          path: dist/*
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 1
+
+  linux:
+    name: Toolkit (linux)
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          submodules: recursive
+      - uses: hendrikmuhs/ccache-action@f09c25b45002a07be2955cbe52e8cee55643f89d # v1.2.24
+        with:
+          key: nightly-linux
+          save: ${{ github.event_name != 'pull_request' }}
+          evict-old-files: job
+      - name: Install the development files
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libvulkan1 mesa-vulkan-drivers libpipewire-0.3-dev libpulse-dev libasound2-dev libxrandr-dev libwayland-dev libxkbcommon-dev libegl-dev libdecor-0-dev
+      - run: cmake -S . -B build $CONFIGURE
+      - name: Build the relinker and the patched libraries
+        run: cmake --build build --target relinker libs
+      - name: Pack the toolkit
+        run: |
+          short="${GITHUB_SHA::7}"
+          python3 tools/package_release.py --platform linux --build build --output stage --version vnightly
+          mkdir -p dist toolkit
+          unzip -q stage/prx-linux-vnightly.zip -d toolkit
+          cp build/core/relinker/relinker toolkit/relinker
+          chmod +x toolkit/relinker
+          echo "anyplay-$short" > toolkit/version.txt
+          tar -czf "dist/AnyPlay-toolkit-linux-$short.tar.gz" -C toolkit .
+          cp stage/relinker-vnightly dist/relinker-nightly
+          cp stage/prx-linux-vnightly.zip dist/prx-linux-nightly.zip
+          ls -l dist
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: nightly-linux
+          path: dist/*
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 1
+
+  release:
+    name: Replace the nightly assets
+    needs: [windows, linux]
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          pattern: nightly-*
+          merge-multiple: true
+          path: dist
+      - name: Write the checksums
+        working-directory: dist
+        run: |
+          sha256sum -- * > ../SHA256SUMS
+          mv ../SHA256SUMS SHA256SUMS
+          cat SHA256SUMS
+      - name: Publish
+        run: |
+          short="${GITHUB_SHA::7}"
+          {
+            echo "Toolkit built from main at ${GITHUB_SHA} on $(date -u +%Y-%m-%d)."
+            echo
+            echo "Not a stable release. Each build replaces the files of the one before."
+            echo
+            echo "- AnyPlay-toolkit-windows-${short}.zip and AnyPlay-toolkit-linux-${short}.tar.gz: relinker, libs/ and version.txt (anyplay-${short}), for the launcher's Use a Toolkit Folder."
+            echo "- relinker-nightly, prx-windows-nightly.zip and prx-linux-nightly.zip: the files of a release as the launcher downloads them."
+            echo "- SHA256SUMS: checksums of all files."
+          } > "$RUNNER_TEMP/notes.md"
+          if gh release view nightly > /dev/null 2>&1; then
+            gh api --method PATCH "repos/$GH_REPO/git/refs/tags/nightly" -f sha="$GITHUB_SHA" -F force=true > /dev/null
+            gh release edit nightly --prerelease --title "Nightly ${short}" --notes-file "$RUNNER_TEMP/notes.md"
+          else
+            gh release create nightly --prerelease --target "$GITHUB_SHA" --title "Nightly ${short}" --notes-file "$RUNNER_TEMP/notes.md"
+          fi
+          gh release upload nightly dist/* --clobber
+          gh release view nightly --json assets --jq '.assets[].name' | while read -r name; do
+            if [ ! -f "dist/$name" ]; then gh release delete-asset nightly "$name" --yes; fi
+          done
+          gh release view nightly --json url,assets --jq '.url, (.assets[] | .name + " " + (.size|tostring))'
