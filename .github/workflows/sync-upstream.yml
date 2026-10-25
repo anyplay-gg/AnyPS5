@@ -1,0 +1,116 @@
+name: Sync with upstream
+
+# Keeps one open pull request, branch sync/upstream, that merges boykopovar/AnyPS5 main into this
+# fork. The merge is a merge commit and the branch is only ever pushed to normally. Nothing here
+# merges the pull request: a person reads it, the build runs on it, and then it is merged.
+#
+# A pull request opened with the workflow token starts no pull_request workflows, so this job
+# dispatches the Windows build for it. Close and reopen the pull request to run the conventions
+# check. When upstream and this fork conflict, no branch is pushed and the issue "Sync with
+# upstream needs a manual merge" lists the files.
+
+on:
+  schedule:
+    - cron: "17 4 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+  actions: write
+
+concurrency:
+  group: sync-upstream
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    if: github.repository == 'anyplaynet/AnyPS5'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      GH_TOKEN: ${{ github.token }}
+      BRANCH: sync/upstream
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Merge upstream main into the sync branch
+        id: merge
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git remote add upstream https://github.com/boykopovar/AnyPS5.git
+          git fetch --no-tags upstream main
+          behind=$(git rev-list --count origin/main..upstream/main)
+          echo "behind=$behind" >> "$GITHUB_OUTPUT"
+          if [ "$behind" = "0" ]; then echo "main already contains upstream main"; echo "changed=false" >> "$GITHUB_OUTPUT"; exit 0; fi
+          if git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null; then
+            git checkout -B "$BRANCH" "origin/$BRANCH"
+          else
+            git checkout -B "$BRANCH" origin/main
+          fi
+          before=$(git rev-parse HEAD)
+          if ! git merge --no-edit origin/main; then
+            git diff --name-only --diff-filter=U > conflicts.txt
+            git merge --abort
+            echo "conflict=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if ! git merge --no-edit -m "chore(sync): merge upstream boykopovar/AnyPS5 main" upstream/main; then
+            git diff --name-only --diff-filter=U > conflicts.txt
+            git merge --abort
+            echo "conflict=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ "$(git rev-parse HEAD)" = "$before" ]; then echo "changed=false" >> "$GITHUB_OUTPUT"; exit 0; fi
+          git push origin "$BRANCH"
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+      - name: Report a conflict
+        if: steps.merge.outputs.conflict == 'true'
+        run: |
+          title="Sync with upstream needs a manual merge"
+          {
+            echo "Merging boykopovar/AnyPS5 main into main conflicts in these files:"
+            echo
+            sed 's/^/- `/; s/$/`/' conflicts.txt
+            echo
+            echo "Merge upstream/main into a branch by hand, resolve these, and open the pull request. This issue is updated by the next scheduled run."
+          } > body.md
+          number=$(gh issue list --state open --search "\"$title\" in:title" --json number --jq '.[0].number // empty')
+          if [ -n "$number" ]; then gh issue comment "$number" --body-file body.md; else gh issue create --title "$title" --body-file body.md; fi
+          echo "::warning::upstream conflicts with main, see the issue"
+      - name: Open or update the pull request
+        if: steps.merge.outputs.changed == 'true'
+        env:
+          behind: ${{ steps.merge.outputs.behind }}
+        run: |
+          number=$(gh pr list --head "$BRANCH" --state open --json number --jq '.[0].number // empty')
+          cat > body.md <<EOF
+          ### What
+          Merges boykopovar/AnyPS5 main into the fork with a merge commit. When this was opened main was $behind commits behind upstream. The job refreshes this pull request every day while it is open.
+
+          ### Tested
+          Not tested when opened. The Windows build is dispatched for this pull request by the sync job; read its result before merging, and close and reopen the pull request to run the conventions check.
+
+          ### Checklist
+          - [x] Based on current \`main\`; no other open PR implements the same functions
+          - [x] One topic per PR; follow-ups go in a new PR
+          - [x] No comments in code except technical debt
+          - [x] Unimplemented paths throw (\`NotImplemented_nid_no_patch\`); silent stubs are listed under Silent stubs in their library's technical debt file
+          - [x] No notes, investigation \`.md\` files or images added to the repository
+          - [x] New third-party code is a submodule built from source
+          - [x] Generic behaviour, not specific to one title
+          - [x] Depends on: none
+          - [x] Fixes: none
+          - [x] Unblocks: none
+          - [x] GPUs tested: n/a
+          - [x] AI-assisted: no
+          EOF
+          if [ -z "$number" ]; then
+            number=$(gh pr create --head "$BRANCH" --base main --title "chore(sync): sync fork with upstream boykopovar/AnyPS5 main" --body-file body.md | grep -o '[0-9]*$')
+          else
+            gh pr edit "$number" --body-file body.md
+          fi
+          gh workflow run build.yml -f pr="$number" -f linux=false
