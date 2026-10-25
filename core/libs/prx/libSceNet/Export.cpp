@@ -1878,11 +1878,18 @@ int APS5_VABI sceNetSetsockopt(int s, int level, int optname, const void* optval
 int APS5_VABI sceNetGetsockopt(int s, int level, int optname, void* optval, uint32_t* optlen) {
     NetBridgeCall netCall("libSceNet", __func__, [&](NetBridgeJson& netIn) { netIn.Int("s", s); netIn.Int("level", level); netIn.Int("optname", optname); });
     Sock socket;
+    bool found = false;
     {
         std::lock_guard lk(g_mutex);
         auto it = g_socks.find(s);
-        if (it == g_socks.end()) return netCall.Ret(fail(NET_EBADF));
-        socket = it->second;
+        if (it != g_socks.end()) {
+            socket = it->second;
+            found = true;
+        }
+    }
+    if (!found) {
+        if (!GuestSocketIsOpen_nid_no_patch(s)) return netCall.Ret(fail(NET_EBADF));
+        return netCall.Ret(getsockopt_nid_postfix(s, level, optname, optval, optlen) == 0 ? 0 : fail(*__error_nid_postfix()));
     }
     if (optval == nullptr || optlen == nullptr) return netCall.Ret(fail(NET_EINVAL));
     if (level == NET_SOL_SOCKET && optname == NET_SO_PROTOCOL) {

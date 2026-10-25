@@ -1621,6 +1621,27 @@ static void CheckCloseKernelSocket() {
     Require(Failed(sceNetSocketClose(kernel), 9));
 }
 
+static void CheckKernelSocketGetOption() {
+    const int kernel = socket_nid_postfix(2, 1, 0);
+    Require(kernel >= 0);
+    const int requested = 65536;
+    Require(sceNetSetsockopt(kernel, 0xffff, 0x1001, &requested, sizeof(requested)) == 0);
+    int value = 0;
+    std::uint32_t size = sizeof(value);
+    Require(sceNetGetsockopt(kernel, 0xffff, 0x1001, &value, &size) == 0 && size == sizeof(value) && value > 0);
+    int expected = 0;
+    std::uint32_t expectedSize = sizeof(expected);
+    Require(getsockopt_nid_postfix(kernel, 0xffff, 0x1001, &expected, &expectedSize) == 0 && value == expected);
+    const int one = 1;
+    Require(sceNetSetsockopt(kernel, 6, 1, &one, sizeof(one)) == 0);
+    value = 0;
+    size = sizeof(value);
+    Require(sceNetGetsockopt(kernel, 6, 1, &value, &size) == 0 && value != 0);
+    Require(Failed(sceNetGetsockopt(kernel, 1234, 1, &value, &size), 22));
+    Require(close_nid_postfix(kernel) == 0);
+    Require(Failed(sceNetGetsockopt(kernel, 0xffff, 0x1001, &value, &size), 9));
+}
+
 static std::array<std::uint8_t, 0xa0> RequireSockInfo(int socket, int type, int flags, const std::array<std::uint8_t, 16>& local,
     const std::array<std::uint8_t, 16>& remote) {
     std::array<std::uint8_t, 0x140> records;
@@ -2011,6 +2032,7 @@ int main() {
     }
     CheckDatagramDisconnect();
     CheckCloseKernelSocket();
+    CheckKernelSocketGetOption();
     CheckSockInfo();
     CheckSockInfo6();
 
