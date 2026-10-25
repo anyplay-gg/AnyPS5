@@ -1,3 +1,4 @@
+#include "prx/libSceNpCppWebApi/include/Api.hpp"
 #include <atomic>
 #include <cstdint>
 #include <cstddef>
@@ -331,11 +332,6 @@ int APS5_VABI _ZN3sce2Np9CppWebApi6Common11TransactionINS2_12IntrusivePtrINS1_12
     return netCall.Ret(0);
 }
 
-struct IntrusivePtr {
-    void* object;
-    void (APS5_VABI* deleter)(void*);
-    void* libContext;
-};
 static_assert(sizeof(IntrusivePtr) == 0x18);
 
 static constexpr std::size_t ReferenceCountOffset = 0;
@@ -561,12 +557,6 @@ int APS5_VABI _ZN3sce2Np9CppWebApi6Common21DownStreamTransactionINS2_12Intrusive
     return netCall.Ret(0);
 }
 
-struct CommonString {
-    std::int32_t referenceCount;
-    char* buffer;
-    std::uint64_t bufferSize;
-    void* libContext;
-};
 static_assert(sizeof(CommonString) == 0x20 && offsetof(CommonString, buffer) == 0x08);
 static_assert(offsetof(CommonString, bufferSize) == 0x10 && offsetof(CommonString, libContext) == 0x18);
 
@@ -1054,7 +1044,6 @@ static int VectorPushBackString(IntrusivePtr* self, const CommonString* element)
 // SessionManager2V1 and extra Common symbols, from a title dump whose modules lack
 // libSceNpCppWebApi.prx.
 // --------------------------------------------------------------------------
-
 
 void APS5_VABI _ZN3sce2Np9CppWebApi6Common12IntrusivePtrINS1_14SessionManager2V115LocalizedStringEEC1ERS7_(IntrusivePtr* self, const IntrusivePtr* source) {
     NetBridgeCall netCall("libSceNpCppWebApi", __func__);
@@ -1775,148 +1764,126 @@ int APS5_VABI _ZN3sce2Np9CppWebApi6Common11TransactionINS2_15DefaultResponseENS2
     return netCall.Ret(0);
 }
 
-int APS5_VABI _ZN3sce2Np9CppWebApi6Common13ConstIteratorINS2_12IntrusivePtrINS1_13InGameCatalog2V57ProductEEEED2Ev(void) {
+int APS5_VABI _ZN3sce2Np9CppWebApi6Common13ConstIteratorINS2_12IntrusivePtrINS1_13InGameCatalog2V57ProductEEEED2Ev(void* self) {
     NetBridgeCall netCall("libSceNpCppWebApi", __func__);
-    NotImplemented_nid_no_patch(__func__);
+    (void)self;
     return netCall.Ret(0);
 }
 
-int APS5_VABI _ZN3sce2Np9CppWebApi6Common13ConstIteratorINS2_12IntrusivePtrINS1_17TitleCloudStorage2V110DataStatusEEEED2Ev(void) {
+int APS5_VABI _ZN3sce2Np9CppWebApi6Common13ConstIteratorINS2_12IntrusivePtrINS1_17TitleCloudStorage2V110DataStatusEEEED2Ev(void* self) {
     NetBridgeCall netCall("libSceNpCppWebApi", __func__);
-    NotImplemented_nid_no_patch(__func__);
+    (void)self;
     return netCall.Ret(0);
 }
 
-int APS5_VABI _ZN3sce2Np9CppWebApi6Common12IntrusivePtrINS2_6VectorINS3_INS1_13InGameCatalog2V59ContainerEEEEEEC1Ev(void) {
+void APS5_VABI _ZN3sce2Np9CppWebApi6Common12IntrusivePtrINS2_6VectorINS3_INS1_13InGameCatalog2V59ContainerEEEEEEC1Ev(IntrusivePtr* self) {
     NetBridgeCall netCall("libSceNpCppWebApi", __func__);
-    NotImplemented_nid_no_patch(__func__);
-    return netCall.Ret(0);
+    *self = {};
 }
 
-int APS5_VABI _ZNK3sce2Np9CppWebApi6Common12IntrusivePtrINS2_6VectorINS3_INS1_13InGameCatalog2V59ContainerEEEEEEdeEv(void) {
+void* APS5_VABI _ZNK3sce2Np9CppWebApi6Common12IntrusivePtrINS2_6VectorINS3_INS1_13InGameCatalog2V59ContainerEEEEEEdeEv(const IntrusivePtr* self) {
     NetBridgeCall netCall("libSceNpCppWebApi", __func__);
-    NotImplemented_nid_no_patch(__func__);
-    return netCall.Ret(0);
+    return self->object;
 }
 
-int APS5_VABI _ZNK3sce2Np9CppWebApi6Common12IntrusivePtrINS2_6VectorINS3_INS1_13InGameCatalog2V59ContainerEEEEEEptEv(void) {
+void* APS5_VABI _ZNK3sce2Np9CppWebApi6Common12IntrusivePtrINS2_6VectorINS3_INS1_13InGameCatalog2V59ContainerEEEEEEptEv(const IntrusivePtr* self) {
     NetBridgeCall netCall("libSceNpCppWebApi", __func__);
-    NotImplemented_nid_no_patch(__func__);
-    return netCall.Ret(0);
+    return self->object;
 }
 
-int APS5_VABI _ZN3sce2Np9CppWebApi6Common12IntrusivePtrINS2_6VectorINS3_INS1_13InGameCatalog2V59ContainerEEEEEED1Ev(void) {
+void APS5_VABI _ZN3sce2Np9CppWebApi6Common12IntrusivePtrINS2_6VectorINS3_INS1_13InGameCatalog2V59ContainerEEEEEED1Ev(IntrusivePtr* self) {
     NetBridgeCall netCall("libSceNpCppWebApi", __func__);
-    NotImplemented_nid_no_patch(__func__);
-    return netCall.Ret(0);
+    ReleaseIntrusivePtr(self, 0x30, __func__);
 }
 
-int APS5_VABI _ZNK3sce2Np9CppWebApi6Common12IntrusivePtrINS2_6VectorINS3_INS1_13InGameCatalog2V57ProductEEEEEEptEv(void) {
+void* APS5_VABI _ZNK3sce2Np9CppWebApi6Common12IntrusivePtrINS2_6VectorINS3_INS1_13InGameCatalog2V57ProductEEEEEEptEv(const IntrusivePtr* self) {
     NetBridgeCall netCall("libSceNpCppWebApi", __func__);
-    NotImplemented_nid_no_patch(__func__);
-    return netCall.Ret(0);
+    return self->object;
 }
 
-int APS5_VABI _ZN3sce2Np9CppWebApi6Common12IntrusivePtrINS2_6VectorINS3_INS1_13InGameCatalog2V57ProductEEEEEED1Ev(void) {
+void APS5_VABI _ZN3sce2Np9CppWebApi6Common12IntrusivePtrINS2_6VectorINS3_INS1_13InGameCatalog2V57ProductEEEEEED1Ev(IntrusivePtr* self) {
     NetBridgeCall netCall("libSceNpCppWebApi", __func__);
-    NotImplemented_nid_no_patch(__func__);
-    return netCall.Ret(0);
+    ReleaseIntrusivePtr(self, 0x30, __func__);
 }
 
-int APS5_VABI _ZNK3sce2Np9CppWebApi6Common12IntrusivePtrINS2_6VectorINS3_INS1_13InGameCatalog2V53SkuEEEEEEptEv(void) {
+void* APS5_VABI _ZNK3sce2Np9CppWebApi6Common12IntrusivePtrINS2_6VectorINS3_INS1_13InGameCatalog2V53SkuEEEEEEptEv(const IntrusivePtr* self) {
     NetBridgeCall netCall("libSceNpCppWebApi", __func__);
-    NotImplemented_nid_no_patch(__func__);
-    return netCall.Ret(0);
+    return self->object;
 }
 
-int APS5_VABI _ZN3sce2Np9CppWebApi6Common12IntrusivePtrINS2_6VectorINS3_INS1_13InGameCatalog2V53SkuEEEEEED1Ev(void) {
+void APS5_VABI _ZN3sce2Np9CppWebApi6Common12IntrusivePtrINS2_6VectorINS3_INS1_13InGameCatalog2V53SkuEEEEEED1Ev(IntrusivePtr* self) {
     NetBridgeCall netCall("libSceNpCppWebApi", __func__);
-    NotImplemented_nid_no_patch(__func__);
-    return netCall.Ret(0);
+    ReleaseIntrusivePtr(self, 0x30, __func__);
 }
 
-int APS5_VABI _ZNK3sce2Np9CppWebApi6Common12IntrusivePtrINS2_6VectorINS3_INS1_17TitleCloudStorage2V110DataStatusEEEEEEdeEv(void) {
+void* APS5_VABI _ZNK3sce2Np9CppWebApi6Common12IntrusivePtrINS2_6VectorINS3_INS1_17TitleCloudStorage2V110DataStatusEEEEEEdeEv(const IntrusivePtr* self) {
     NetBridgeCall netCall("libSceNpCppWebApi", __func__);
-    NotImplemented_nid_no_patch(__func__);
-    return netCall.Ret(0);
+    return self->object;
 }
 
-int APS5_VABI _ZN3sce2Np9CppWebApi6Common12IntrusivePtrINS2_6VectorINS3_INS1_17TitleCloudStorage2V110DataStatusEEEEEED1Ev(void) {
+void APS5_VABI _ZN3sce2Np9CppWebApi6Common12IntrusivePtrINS2_6VectorINS3_INS1_17TitleCloudStorage2V110DataStatusEEEEEED1Ev(IntrusivePtr* self) {
     NetBridgeCall netCall("libSceNpCppWebApi", __func__);
-    NotImplemented_nid_no_patch(__func__);
-    return netCall.Ret(0);
+    ReleaseIntrusivePtr(self, 0x30, __func__);
 }
 
-int APS5_VABI _ZN3sce2Np9CppWebApi6Common12IntrusivePtrINS1_13InGameCatalog2V59ContainerEEC1ERS7_(void) {
+void APS5_VABI _ZN3sce2Np9CppWebApi6Common12IntrusivePtrINS1_13InGameCatalog2V59ContainerEEC1ERS7_(IntrusivePtr* self, const IntrusivePtr* source) {
     NetBridgeCall netCall("libSceNpCppWebApi", __func__);
-    NotImplemented_nid_no_patch(__func__);
-    return netCall.Ret(0);
+    CopyIntrusivePtr(self, source, 0x00);
 }
 
-int APS5_VABI _ZNK3sce2Np9CppWebApi6Common12IntrusivePtrINS1_13InGameCatalog2V59ContainerEEptEv(void) {
+void* APS5_VABI _ZNK3sce2Np9CppWebApi6Common12IntrusivePtrINS1_13InGameCatalog2V59ContainerEEptEv(const IntrusivePtr* self) {
     NetBridgeCall netCall("libSceNpCppWebApi", __func__);
-    NotImplemented_nid_no_patch(__func__);
-    return netCall.Ret(0);
+    return self->object;
 }
 
-int APS5_VABI _ZN3sce2Np9CppWebApi6Common12IntrusivePtrINS1_13InGameCatalog2V59ContainerEED1Ev(void) {
+void APS5_VABI _ZN3sce2Np9CppWebApi6Common12IntrusivePtrINS1_13InGameCatalog2V59ContainerEED1Ev(IntrusivePtr* self) {
     NetBridgeCall netCall("libSceNpCppWebApi", __func__);
-    NotImplemented_nid_no_patch(__func__);
-    return netCall.Ret(0);
+    ReleaseIntrusivePtr(self, 0x00, __func__);
 }
 
-int APS5_VABI _ZN3sce2Np9CppWebApi6Common12IntrusivePtrINS1_13InGameCatalog2V57ProductEEC1ERS7_(void) {
+void APS5_VABI _ZN3sce2Np9CppWebApi6Common12IntrusivePtrINS1_13InGameCatalog2V57ProductEEC1ERS7_(IntrusivePtr* self, const IntrusivePtr* source) {
     NetBridgeCall netCall("libSceNpCppWebApi", __func__);
-    NotImplemented_nid_no_patch(__func__);
-    return netCall.Ret(0);
+    CopyIntrusivePtr(self, source, 0x00);
 }
 
-int APS5_VABI _ZNK3sce2Np9CppWebApi6Common12IntrusivePtrINS1_13InGameCatalog2V57ProductEEptEv(void) {
+void* APS5_VABI _ZNK3sce2Np9CppWebApi6Common12IntrusivePtrINS1_13InGameCatalog2V57ProductEEptEv(const IntrusivePtr* self) {
     NetBridgeCall netCall("libSceNpCppWebApi", __func__);
-    NotImplemented_nid_no_patch(__func__);
-    return netCall.Ret(0);
+    return self->object;
 }
 
-int APS5_VABI _ZN3sce2Np9CppWebApi6Common12IntrusivePtrINS1_13InGameCatalog2V57ProductEED1Ev(void) {
+void APS5_VABI _ZN3sce2Np9CppWebApi6Common12IntrusivePtrINS1_13InGameCatalog2V57ProductEED1Ev(IntrusivePtr* self) {
     NetBridgeCall netCall("libSceNpCppWebApi", __func__);
-    NotImplemented_nid_no_patch(__func__);
-    return netCall.Ret(0);
+    ReleaseIntrusivePtr(self, 0x00, __func__);
 }
 
-int APS5_VABI _ZNK3sce2Np9CppWebApi6Common12IntrusivePtrINS1_17TitleCloudStorage2V110DataStatusEEptEv(void) {
+void* APS5_VABI _ZNK3sce2Np9CppWebApi6Common12IntrusivePtrINS1_17TitleCloudStorage2V110DataStatusEEptEv(const IntrusivePtr* self) {
     NetBridgeCall netCall("libSceNpCppWebApi", __func__);
-    NotImplemented_nid_no_patch(__func__);
-    return netCall.Ret(0);
+    return self->object;
 }
 
-int APS5_VABI _ZN3sce2Np9CppWebApi6Common12IntrusivePtrINS1_17TitleCloudStorage2V132GetMultiDataStatusesResponseBodyEEC1Ev(void) {
+void APS5_VABI _ZN3sce2Np9CppWebApi6Common12IntrusivePtrINS1_17TitleCloudStorage2V132GetMultiDataStatusesResponseBodyEEC1Ev(IntrusivePtr* self) {
     NetBridgeCall netCall("libSceNpCppWebApi", __func__);
-    NotImplemented_nid_no_patch(__func__);
-    return netCall.Ret(0);
+    *self = {};
 }
 
-int APS5_VABI _ZNK3sce2Np9CppWebApi6Common12IntrusivePtrINS1_17TitleCloudStorage2V132GetMultiDataStatusesResponseBodyEEptEv(void) {
+void* APS5_VABI _ZNK3sce2Np9CppWebApi6Common12IntrusivePtrINS1_17TitleCloudStorage2V132GetMultiDataStatusesResponseBodyEEptEv(const IntrusivePtr* self) {
     NetBridgeCall netCall("libSceNpCppWebApi", __func__);
-    NotImplemented_nid_no_patch(__func__);
-    return netCall.Ret(0);
+    return self->object;
 }
 
-int APS5_VABI _ZN3sce2Np9CppWebApi6Common12IntrusivePtrINS1_17TitleCloudStorage2V132GetMultiDataStatusesResponseBodyEED1Ev(void) {
+void APS5_VABI _ZN3sce2Np9CppWebApi6Common12IntrusivePtrINS1_17TitleCloudStorage2V132GetMultiDataStatusesResponseBodyEED1Ev(IntrusivePtr* self) {
     NetBridgeCall netCall("libSceNpCppWebApi", __func__);
-    NotImplemented_nid_no_patch(__func__);
-    return netCall.Ret(0);
+    ReleaseIntrusivePtr(self, 0x00, __func__);
 }
 
-int APS5_VABI _ZNK3sce2Np9CppWebApi6Common12IntrusivePtrINS1_17TitleCloudStorage2V15OwnerEEptEv(void) {
+void* APS5_VABI _ZNK3sce2Np9CppWebApi6Common12IntrusivePtrINS1_17TitleCloudStorage2V15OwnerEEptEv(const IntrusivePtr* self) {
     NetBridgeCall netCall("libSceNpCppWebApi", __func__);
-    NotImplemented_nid_no_patch(__func__);
-    return netCall.Ret(0);
+    return self->object;
 }
 
-int APS5_VABI _ZN3sce2Np9CppWebApi6Common12IntrusivePtrINS1_17TitleCloudStorage2V15OwnerEED1Ev(void) {
+void APS5_VABI _ZN3sce2Np9CppWebApi6Common12IntrusivePtrINS1_17TitleCloudStorage2V15OwnerEED1Ev(IntrusivePtr* self) {
     NetBridgeCall netCall("libSceNpCppWebApi", __func__);
-    NotImplemented_nid_no_patch(__func__);
-    return netCall.Ret(0);
+    ReleaseIntrusivePtr(self, 0x00, __func__);
 }
 
 bool APS5_VABI _ZNK3sce2Np9CppWebApi6Common8IteratorINS2_12IntrusivePtrINS1_13InGameCatalog2V57ProductEEEEneERKS9_(const void* self, const void* other) {

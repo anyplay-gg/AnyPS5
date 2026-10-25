@@ -1,3 +1,4 @@
+#include "prx/libSceHttp/include/Http.hpp"
 #include "prx/libSceHttp/src/Options.hpp"
 #include "prx/libSceNetCtl/include/NetBridge.hpp"
 #include "prx/libc/include/General.hpp"
