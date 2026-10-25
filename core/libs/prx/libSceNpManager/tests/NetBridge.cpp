@@ -13,22 +13,7 @@
 #include <stdexcept>
 #include <string>
 
-extern "C" {
-int APS5_VABI sceNpGetState(int user_id, std::uint32_t* state);
-int APS5_VABI sceNpGetOnlineId(int user_id, NpOnlineId* online_id);
-int APS5_VABI sceNpGetNpId(int user_id, NpId* np_id);
-int APS5_VABI sceNpGetAccountIdA(int user_id, std::uint64_t* account_id);
-int APS5_VABI sceNpCheckCallback(void);
-int APS5_VABI sceNpRegisterStateCallback(void* callback, void* userdata);
-int APS5_VABI sceNpRegisterStateCallbackA(void* callback, void* userdata);
-int APS5_VABI sceNpCreateRequest(void);
-int APS5_VABI sceNpDeleteRequest(int req_id);
-int APS5_VABI sceNpCheckPlus(int req_id, const void* param, void* result);
-int APS5_VABI sceNpCheckPremium(int req_id, const NpCheckPremiumParameter* param, NpCheckPremiumResult* result);
-int APS5_VABI sceNpPollAsync(int req_id, int* result);
-int APS5_VABI sceNpNotifyPlusFeature(const void* param);
-int APS5_VABI sceUserServiceGetNpAccountId(int user_id, std::uint64_t* account_id);
-}
+#include "prx/libSceNpManager/include/Api.hpp"
 
 namespace {
 
@@ -93,8 +78,8 @@ int main() {
     const std::uint8_t address[4] = {0x05, 0x00, 0x12, 0xC6};
     service.SetState(true, AccountId, "Sixteen_Chars_16", 1, address);
 
-    Require(sceNpRegisterStateCallback(reinterpret_cast<void*>(&LegacyCallback), nullptr) == 0, "register legacy callback");
-    Require(sceNpRegisterStateCallbackA(reinterpret_cast<void*>(&ModernCallback), nullptr) == 1, "register modern callback");
+    Require(sceNpRegisterStateCallback(&LegacyCallback, nullptr) == 0, "register legacy callback");
+    Require(sceNpRegisterStateCallbackA(&ModernCallback, nullptr) == 1, "register modern callback");
 
     std::uint32_t state = 0;
     Require(sceNpGetState(USER_SERVICE_INITIAL_USER_ID, &state) == 0 && state == 2, "signed in state");
@@ -140,7 +125,7 @@ int main() {
     Require(sceNpCheckPlus(0, plusParameter, plusResult) == InvalidArgument && sceNpCheckPlus(request, nullptr, plusResult) == InvalidArgument, "plus arguments");
     Require(sceNpDeleteRequest(request) == 0, "delete request");
     Require(sceNpCheckPlus(request, plusParameter, plusResult) == RequestNotFound, "plus on a deleted request");
-    Require(sceNpPollAsync(request, &polled) == 0 && polled == SignedOut, "a deleted request polls as today");
+    Require(sceNpPollAsync(request, &polled) == RequestNotFound, "a deleted request polls as today");
 
     int dummyFeature = 0;
     Require(sceNpNotifyPlusFeature(&dummyFeature) == 0, "plus feature accepted");
