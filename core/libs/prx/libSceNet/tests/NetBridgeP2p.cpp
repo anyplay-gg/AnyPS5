@@ -17,6 +17,12 @@ std::int64_t APS5_VABI sceNetSendto(int, const void*, std::size_t, int, const vo
 std::int64_t APS5_VABI sceNetRecvfrom(int, void*, std::size_t, int, void*, std::uint32_t*);
 int APS5_VABI sceNetSocketClose(int);
 int* APS5_VABI sceNetErrnoLoc();
+int APS5_VABI sceNetListen(int, int);
+int APS5_VABI sceNetAccept(int, void*, std::uint32_t*);
+int APS5_VABI sceNetConnect(int, const void*, std::uint32_t);
+int APS5_VABI sceNetGetpeername(int, void*, std::uint32_t*);
+std::int64_t APS5_VABI sceNetSend(int, const void*, std::size_t, int);
+std::int64_t APS5_VABI sceNetRecv(int, void*, std::size_t, int);
 }
 
 namespace {
@@ -27,6 +33,9 @@ using FakeNet::Service;
 
 constexpr int AfInet = 2;
 constexpr int SockDgramP2p = 6;
+constexpr int SockStreamP2p = 10;
+constexpr int EConnAborted = 53;
+constexpr int ENotConn = 57;
 constexpr int SolSocket = 0xFFFF;
 constexpr int SoNbio = 0x1200;
 constexpr int EAgain = 35;
@@ -60,7 +69,7 @@ std::int64_t ReceiveWithin(int socket, std::uint8_t* buffer, std::size_t size, s
 void BridgeCalls(Service& service) {
     NetBridgeTrafficView traffic{};
     Require(NetBridgeTraffic_nid_no_patch(&traffic) == 1, "traffic ports while connected");
-    Require(traffic.udpPort == service.DatagramPort() && traffic.tcpPort == 0, "traffic ports from welcome");
+    Require(traffic.udpPort == service.DatagramPort() && traffic.tcpPort == service.StreamPort(), "traffic ports from welcome");
     for (int index = 0; index < 16; ++index) Require(traffic.streamKey[index] == index, "stream key from welcome");
 
     Require(NetBridgeActivate_nid_no_patch(268435456, "session-a", 1) == 0, "activate a known session");
@@ -163,6 +172,79 @@ void Sockets(Service& service) {
     Require(Service::WaitUntil([&] { return service.LiveBinds().empty(); }, 5000), "close unbinds the virtual port");
 }
 
+std::int64_t ReceiveAll(int socket, std::uint8_t* buffer, std::size_t size) {
+    std::size_t total = 0;
+    Service::WaitUntil([&] {
+        const auto got = sceNetRecv(socket, buffer + total, size - total, 0);
+        if (got > 0) total += static_cast<std::size_t>(got);
+        return total == size;
+    }, 5000);
+    return static_cast<std::int64_t>(total);
+}
+
+Bytes ReadFromService(FakeNet::Handle handle, std::size_t size) {
+    Bytes bytes(size, 0);
+    Require(FakeNet::ReadExact(handle, bytes.data(), bytes.size()), "service reads the stream");
+    return bytes;
+}
+
+void Streams(Service& service) {
+    const int listener = sceNetSocket("p2p-stream", AfInet, SockStreamP2p, 0);
+    Require(listener >= 0, "peer-to-peer stream socket with the bridge on");
+    const auto listenerAddress = P2pAddress(0, GamePort, 4);
+    Require(sceNetBind_nid_postfix(listener, listenerAddress.data(), 16) == 0, "bind a stream virtual port");
+    Require(service.LiveBinds().empty(), "a stream bind registers nothing before listen");
+    Require(sceNetListen(listener, 4) == 0, "listen");
+    Require(Service::WaitUntil([&] { return service.LiveBinds().size() == 1; }, 5000), "listen registered the virtual port");
+    const auto streamBind = service.LiveBinds()[0];
+    Require(streamBind.vport == 4 && streamBind.transport == 2 && streamBind.loopbackPort != 0, "stream bind fields");
+
+    const FakeNet::Handle incoming = service.OpenStreamTo(Peer, 4, 9);
+    Require(incoming != FakeNet::InvalidHandle, "service opens a stream to the listener");
+    std::uint8_t from[16]{};
+    std::uint32_t fromLength = 16;
+    const int accepted = sceNetAccept(listener, from, &fromLength);
+    Require(accepted >= 0, "accept a peer stream");
+    Require(fromLength == 16 && std::memcmp(from, P2pAddress(Peer, GamePort, 9).data(), 16) == 0, "accept reports the peer's virtual address and port");
+    std::uint8_t peerName[16]{};
+    std::uint32_t peerLength = 16;
+    Require(sceNetGetpeername(accepted, peerName, &peerLength) == 0 && std::memcmp(peerName, from, 16) == 0, "getpeername of the accepted stream");
+    Require(FakeNet::WriteExact(incoming, Bytes{'h', 'i'}), "peer writes");
+    std::uint8_t greeting[2]{};
+    Require(ReceiveAll(accepted, greeting, sizeof(greeting)) == 2 && greeting[0] == 'h' && greeting[1] == 'i', "game reads the peer's bytes");
+    Require(sceNetSend(accepted, "ok", 2, 0) == 2, "game writes back");
+    Require(ReadFromService(incoming, 2) == Bytes({'o', 'k'}), "peer reads the game's bytes");
+    FakeNet::CloseHandleSafe(incoming);
+    Require(sceNetSocketClose(accepted) == 0, "close the accepted stream");
+
+    const FakeNet::Handle forged = service.OpenStreamTo(Peer, 4, 9, false);
+    Require(forged != FakeNet::InvalidHandle, "a stream with the wrong key");
+    Require(sceNetAccept(listener, nullptr, nullptr) < 0 && *sceNetErrnoLoc() == EConnAborted, "a wrong key is refused");
+    FakeNet::CloseHandleSafe(forged);
+
+    const int client = sceNetSocket("p2p-stream", AfInet, SockStreamP2p, 0);
+    Require(client >= 0, "client stream socket");
+    const auto clientAddress = P2pAddress(0, GamePort, 5);
+    Require(sceNetBind_nid_postfix(client, clientAddress.data(), 16) == 0, "bind the client");
+    std::uint8_t unknownPeer[16]{};
+    std::uint32_t unknownLength = 16;
+    Require(sceNetGetpeername(client, unknownPeer, &unknownLength) < 0 && *sceNetErrnoLoc() == ENotConn, "no peer before connect");
+    const auto target = P2pAddress(Peer, GamePort, 6);
+    Require(sceNetConnect(client, target.data(), 16) == 0, "connect to a peer");
+    Require(Service::WaitUntil([&] { return service.Streams().size() == 1; }, 5000), "stream reached the service");
+    const auto call = service.Streams()[0];
+    Require(call.keyMatches && call.address == Peer && call.vport == 6 && call.sourceVport == 5, "stream preamble");
+    Require(sceNetSend(client, "ping", 4, 0) == 4, "send on the stream");
+    std::uint8_t echo[4]{};
+    Require(ReceiveAll(client, echo, sizeof(echo)) == 4 && std::memcmp(echo, "ping", 4) == 0, "receive the echo");
+    Require(sceNetGetpeername(client, peerName, &peerLength) == 0 && std::memcmp(peerName, target.data(), 16) == 0, "getpeername of the connected stream");
+    Require(sceNetSocketClose(client) == 0, "close the client");
+
+    Require(sceNetSocketClose(listener) == 0, "close the listener");
+    Require(Service::WaitUntil([&] { return service.LiveBinds().empty(); }, 5000), "closing the listener unbinds its virtual port");
+    Require(service.Unbinds().back() == std::make_pair(std::uint16_t{4}, std::uint8_t{2}), "unbind names the stream transport");
+}
+
 }
 
 int main() {
@@ -176,6 +258,7 @@ int main() {
     Require(Service::WaitUntil([] { NetBridgeStateView view{}; NetBridgeState_nid_no_patch(&view); return view.signedIn == 1; }, 5000), "signed in");
     BridgeCalls(service);
     Sockets(service);
+    Streams(service);
     std::puts("net bridge p2p: ok");
     return 0;
 }
