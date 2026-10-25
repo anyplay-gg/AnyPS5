@@ -41,6 +41,27 @@ struct NetBridgeWebReplyView {
     std::uint64_t bodySize;
 };
 
+struct NetBridgeTrafficView {
+    std::uint16_t udpPort;
+    std::uint16_t tcpPort;
+    std::uint8_t streamKey[16];
+};
+
+struct NetBridgePeerView {
+    std::uint64_t accountId;
+    char handle[17];
+    std::uint8_t peerState;
+    std::uint8_t reserved[2];
+    std::uint32_t address;
+};
+
+struct NetBridgePeerInfoView {
+    std::uint8_t known;
+    std::uint8_t relayed;
+    std::uint8_t reserved[2];
+    std::uint32_t rttUs;
+};
+
 struct NetBridgeObservation {
     const char* lib;
     const char* fn;
@@ -58,6 +79,13 @@ std::uint64_t NetBridgeState_nid_no_patch(NetBridgeStateView* out);
 int NetBridgeWebRequest_nid_no_patch(const NetBridgeWebRequestView* in, NetBridgeWebReplyView* out);
 void NetBridgeWebReplyRelease_nid_no_patch(NetBridgeWebReplyView* reply);
 void NetBridgeFeature_nid_no_patch(std::int32_t userId, std::uint32_t feature);
+int NetBridgeTraffic_nid_no_patch(NetBridgeTrafficView* out);
+int NetBridgeActivate_nid_no_patch(std::int32_t userId, const char* session, std::uint8_t sessionKind);
+void NetBridgeDeactivate_nid_no_patch(std::int32_t userId, const char* session);
+std::uint32_t NetBridgePeers_nid_no_patch(const char* session, NetBridgePeerView* out, std::uint32_t capacity, std::uint64_t* counter);
+int NetBridgePeerInfo_nid_no_patch(std::uint32_t address, NetBridgePeerInfoView* out);
+int NetBridgeBind_nid_no_patch(std::uint16_t vport, std::uint8_t transport, std::uint16_t loopbackPort);
+void NetBridgeUnbind_nid_no_patch(std::uint16_t vport, std::uint8_t transport);
 void NetBridgePushFilter_nid_no_patch(std::int32_t userId, std::uint32_t filter, const char* const* dataTypes, std::uint32_t count);
 void NetBridgePushFilterGone_nid_no_patch(std::int32_t userId, std::uint32_t filter);
 int NetBridgeObserveEnabled_nid_no_patch(void);

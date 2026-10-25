@@ -24,6 +24,12 @@ constexpr std::uint16_t KindFeature = 0x0102;
 constexpr std::uint16_t KindWebRequest = 0x0201;
 constexpr std::uint16_t KindPushFilter = 0x0202;
 constexpr std::uint16_t KindPushFilterGone = 0x0203;
+constexpr std::uint16_t KindActivate = 0x0301;
+constexpr std::uint16_t KindDeactivate = 0x0302;
+constexpr std::uint16_t KindPeer = 0x0303;
+constexpr std::uint16_t KindPeerInfo = 0x0304;
+constexpr std::uint16_t KindBind = 0x0305;
+constexpr std::uint16_t KindUnbind = 0x0306;
 
 using Pairs = std::vector<std::pair<std::string, std::string>>;
 
