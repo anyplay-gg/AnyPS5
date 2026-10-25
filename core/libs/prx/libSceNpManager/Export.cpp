@@ -1099,9 +1099,10 @@ int APS5_VABI sceNpGetState(int user_id, uint32_t* state) {
 
 int APS5_VABI sceNpHasSignedUp(int user_id, bool* has_signed_up) {
     NetBridgeCall netCall("libSceNpManager", __func__, [&](NetBridgeJson& netIn) { netIn.Int("user_id", user_id); });
-    (void)user_id;
     if (!has_signed_up) return netCall.Ret(SCE_NP_ERROR_INVALID_ARGUMENT);
-    *has_signed_up = false;
+    NetBridgeStateView view{};
+    *has_signed_up = BridgeSignedIn(user_id, view);
+    if (netCall.On()) netCall.Out().Bool("has_signed_up", *has_signed_up);
     return netCall.Ret(0);
 }
 

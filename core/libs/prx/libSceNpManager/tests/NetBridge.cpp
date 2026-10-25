@@ -31,6 +31,7 @@ int APS5_VABI sceUserServiceGetNpAccountId(int user_id, std::uint64_t* account_i
 int APS5_VABI sceNpGetNpReachabilityState(int user_id, std::uint32_t* state);
 int APS5_VABI sceNpRegisterNpReachabilityStateCallback(void* callback, void* userdata);
 int APS5_VABI sceNpUnregisterNpReachabilityStateCallback(void);
+int APS5_VABI sceNpHasSignedUp(int user_id, bool* has_signed_up);
 }
 
 namespace {
@@ -122,6 +123,10 @@ int main() {
     Require(sceNpGetNpReachabilityState(USER_SERVICE_INITIAL_USER_ID, &reachability) == 0 && reachability == 2, "reachable while signed in");
     Require(sceNpGetNpReachabilityState(OtherUser, &reachability) == 0 && reachability == 0, "another user is unavailable");
     Require(sceNpGetNpReachabilityState(USER_SERVICE_INITIAL_USER_ID, nullptr) == InvalidArgument, "null reachability state");
+    bool signedUp = false;
+    Require(sceNpHasSignedUp(USER_SERVICE_INITIAL_USER_ID, &signedUp) == 0 && signedUp, "signed up while signed in");
+    Require(sceNpHasSignedUp(OtherUser, &signedUp) == 0 && !signedUp, "another user has not signed up");
+    Require(sceNpHasSignedUp(USER_SERVICE_INITIAL_USER_ID, nullptr) == InvalidArgument, "null sign-up flag");
 
     NpOnlineId onlineId;
     std::memset(&onlineId, 0x5A, sizeof(onlineId));
@@ -166,6 +171,7 @@ int main() {
     Require(g_legacy.state == 1 && g_modern.state == 1 && !g_legacy.hadNpId, "callbacks see signed out");
     Require(g_reachability.calls == 2 && g_reachability.state == 0, "reachability callback sees unavailable");
     Require(sceNpGetNpReachabilityState(USER_SERVICE_INITIAL_USER_ID, &reachability) == 0 && reachability == 0, "unavailable while signed out");
+    Require(sceNpHasSignedUp(USER_SERVICE_INITIAL_USER_ID, &signedUp) == 0 && !signedUp, "not signed up while signed out");
     Require(sceNpGetState(USER_SERVICE_INITIAL_USER_ID, &state) == 0 && state == 1, "signed out state");
     Require(sceNpGetOnlineId(USER_SERVICE_INITIAL_USER_ID, &onlineId) == SignedOut, "no online id while signed out");
     Require(sceNpGetNpId(USER_SERVICE_INITIAL_USER_ID, &npId) == SignedOut, "no np id while signed out");
