@@ -3427,11 +3427,13 @@ int APS5_VABI sceNetEmulationDebugSettingsGet(NetEmulationParameter* parameter, 
 
 int APS5_VABI sceNetEmulationSet(const NetEmulationParameter*, std::uint32_t) {
     NetBridgeCall netCall("libSceNet", __func__, [&](NetBridgeJson& netIn) { netIn.Uint("flags", flags); });
+    (void)parameter;
     return netCall.Ret(fail(NET_EOPNOTSUPP));
 }
 
 int APS5_VABI sceNetEmulationGet(NetEmulationParameter*, std::uint32_t) {
     NetBridgeCall netCall("libSceNet", __func__, [&](NetBridgeJson& netIn) { netIn.Uint("flags", flags); });
+    (void)parameter;
     return netCall.Ret(fail(NET_EOPNOTSUPP));
 }
 
