@@ -243,5 +243,3 @@ int APS5_VABI sceNpMatching2Terminate(void) {
     nextContextId = 1;
     return netCall.Ret(0);
 }
-
-}

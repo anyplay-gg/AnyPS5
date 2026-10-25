@@ -3870,4 +3870,3 @@ int APS5_VABI _ZNK3sce2Np9CppWebApi6Common8IteratorINS2_6StringEEdeEv() {
     NotImplemented_nid_no_patch(__func__);
     return netCall.Ret(0);
 }
-}
