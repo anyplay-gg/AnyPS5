@@ -24,6 +24,7 @@ static constexpr uint32_t NP_STATE_SIGNED_IN = 2;
 static constexpr char NP_LIBRARY[] = "libSceNpManager";
 static constexpr int NP_POLL_ASYNC_FINISHED = 0;
 static constexpr uint32_t NP_REACHABILITY_STATE_UNAVAILABLE = 0;
+static constexpr uint32_t NP_REACHABILITY_STATE_REACHABLE = 2;
 static constexpr uint32_t NP_GAME_PRESENCE_STATUS_OFFLINE = 0;
 
 static std::atomic<int> g_nextRequest{1};
@@ -32,6 +33,7 @@ namespace {
 std::mutex reachabilityMutex;
 void* reachabilityCallback = nullptr;
 void* reachabilityUserdata = nullptr;
+std::uint32_t deliveredReachability = NP_REACHABILITY_STATE_UNAVAILABLE;
 std::mutex requestMutex;
 std::unordered_set<int> liveRequests;
 
@@ -65,6 +67,7 @@ int SignedOutRequest(int reqId) {
 }
 
 using NpStateCallbackA = void (APS5_VABI *)(int userId, uint32_t state, void* userdata);
+using NpReachabilityCallback = void (APS5_VABI *)(int userId, uint32_t state, void* userdata);
 using NpStateCallback = void (APS5_VABI *)(int userId, uint32_t state, NpId* npId, void* userdata);
 
 constexpr int NP_STATE_CALLBACK_MAX = 8;
@@ -887,6 +890,24 @@ int APS5_VABI sceNpCheckCallback(void) {
             out.Int("user_id", USER_SERVICE_INITIAL_USER_ID).Uint("state", state);
         });
     }
+    const uint32_t reachability = signedIn ? NP_REACHABILITY_STATE_REACHABLE : NP_REACHABILITY_STATE_UNAVAILABLE;
+    NpReachabilityCallback reachabilityTarget = nullptr;
+    void* reachabilityArgument = nullptr;
+    {
+        std::lock_guard lock(reachabilityMutex);
+        if (bridge && reachabilityCallback != nullptr && reachability != deliveredReachability) {
+            deliveredReachability = reachability;
+            reachabilityTarget = reinterpret_cast<NpReachabilityCallback>(reachabilityCallback);
+            reachabilityArgument = reachabilityUserdata;
+        }
+    }
+    if (reachabilityTarget != nullptr) {
+        reachabilityTarget(USER_SERVICE_INITIAL_USER_ID, reachability, reachabilityArgument);
+        NetBridgeRecord(NP_LIBRARY, "sceNpCheckCallback", false, 0, [&](NetBridgeJson& in, NetBridgeJson& out) {
+            in.Text("callback", "reachability");
+            out.Int("user_id", USER_SERVICE_INITIAL_USER_ID).Uint("state", reachability);
+        });
+    }
     return 0;
 }
 
@@ -1044,7 +1065,9 @@ int APS5_VABI sceNpGetNpReachabilityState(int user_id, uint32_t* state) {
     NetBridgeCall netCall("libSceNpManager", __func__, [&](NetBridgeJson& netIn) { netIn.Int("user_id", user_id); });
     (void)user_id;
     if (!state) return netCall.Ret(SCE_NP_ERROR_INVALID_ARGUMENT);
-    *state = NP_REACHABILITY_STATE_UNAVAILABLE;
+    NetBridgeStateView view{};
+    *state = BridgeSignedIn(user_id, view) ? NP_REACHABILITY_STATE_REACHABLE : NP_REACHABILITY_STATE_UNAVAILABLE;
+    if (netCall.On()) netCall.Out().Uint("state", *state);
     return netCall.Ret(0);
 }
 
@@ -1114,6 +1137,7 @@ int APS5_VABI sceNpUnregisterNpReachabilityStateCallback(void) {
     if (!reachabilityCallback) return netCall.Ret(SCE_NP_ERROR_CALLBACK_NOT_REGISTERED);
     reachabilityCallback = nullptr;
     reachabilityUserdata = nullptr;
+    deliveredReachability = NP_REACHABILITY_STATE_UNAVAILABLE;
     return netCall.Ret(0);
 }
 
