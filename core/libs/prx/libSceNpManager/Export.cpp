@@ -1065,13 +1065,9 @@ int APS5_VABI sceNpGetNpReachabilityState(int user_id, uint32_t* state) {
     NetBridgeCall netCall("libSceNpManager", __func__, [&](NetBridgeJson& netIn) { netIn.Int("user_id", user_id); });
     (void)user_id;
     if (!state) return netCall.Ret(SCE_NP_ERROR_INVALID_ARGUMENT);
-<<<<<<< HEAD
     NetBridgeStateView view{};
     *state = BridgeSignedIn(user_id, view) ? NP_REACHABILITY_STATE_REACHABLE : NP_REACHABILITY_STATE_UNAVAILABLE;
     if (netCall.On()) netCall.Out().Uint("state", *state);
-=======
-    *state = NP_REACHABILITY_STATE_UNAVAILABLE;
->>>>>>> origin/main
     return netCall.Ret(0);
 }
 
@@ -1103,16 +1099,10 @@ int APS5_VABI sceNpGetState(int user_id, uint32_t* state) {
 
 int APS5_VABI sceNpHasSignedUp(int user_id, bool* has_signed_up) {
     NetBridgeCall netCall("libSceNpManager", __func__, [&](NetBridgeJson& netIn) { netIn.Int("user_id", user_id); });
-<<<<<<< HEAD
     if (!has_signed_up) return netCall.Ret(SCE_NP_ERROR_INVALID_ARGUMENT);
     NetBridgeStateView view{};
     *has_signed_up = BridgeSignedIn(user_id, view);
     if (netCall.On()) netCall.Out().Bool("has_signed_up", *has_signed_up);
-=======
-    (void)user_id;
-    if (!has_signed_up) return netCall.Ret(SCE_NP_ERROR_INVALID_ARGUMENT);
-    *has_signed_up = false;
->>>>>>> origin/main
     return netCall.Ret(0);
 }
 
@@ -1148,10 +1138,7 @@ int APS5_VABI sceNpUnregisterNpReachabilityStateCallback(void) {
     if (!reachabilityCallback) return netCall.Ret(SCE_NP_ERROR_CALLBACK_NOT_REGISTERED);
     reachabilityCallback = nullptr;
     reachabilityUserdata = nullptr;
-<<<<<<< HEAD
     deliveredReachability = NP_REACHABILITY_STATE_UNAVAILABLE;
-=======
->>>>>>> origin/main
     return netCall.Ret(0);
 }
 
