@@ -7,7 +7,8 @@ name: Sync with upstream
 # A pull request opened with the workflow token starts no pull_request workflows, so this job
 # dispatches the Windows build for it. Close and reopen the pull request to run the conventions
 # check. When upstream and this fork conflict, no branch is pushed and the issue "Sync with
-# upstream needs a manual merge" lists the files.
+# upstream needs a manual merge" lists the files (when the repository has no issues the run fails
+# and the job summary lists them).
 
 on:
   schedule:
@@ -78,9 +79,11 @@ jobs:
             echo
             echo "Merge upstream/main into a branch by hand, resolve these, and open the pull request. This issue is updated by the next scheduled run."
           } > body.md
-          number=$(gh issue list --state open --search "\"$title\" in:title" --json number --jq '.[0].number // empty')
-          if [ -n "$number" ]; then gh issue comment "$number" --body-file body.md; else gh issue create --title "$title" --body-file body.md; fi
-          echo "::warning::upstream conflicts with main, see the issue"
+          cat body.md >> "$GITHUB_STEP_SUMMARY"
+          number=$(gh issue list --state open --search "\"$title\" in:title" --json number --jq '.[0].number // empty' 2>/dev/null || true)
+          if [ -n "$number" ]; then gh issue comment "$number" --body-file body.md
+          elif ! gh issue create --title "$title" --body-file body.md; then echo "::error::upstream conflicts with main in the files listed in the job summary; the repository has no issues to carry this, so the run fails"; exit 1; fi
+          echo "::warning::upstream conflicts with main, see the issue or the job summary"
       - name: Open or update the pull request
         if: steps.merge.outputs.changed == 'true'
         env:
