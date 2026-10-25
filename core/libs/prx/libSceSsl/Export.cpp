@@ -6,6 +6,7 @@
 #endif
 
 #include "SslTypes.hpp"
+#include "prx/libSceNetCtl/include/NetBridge.hpp"
 #include "prx/libc/include/ApplicationHeap.hpp"
 #include "prx/libc/include/General.hpp"
 #include "prx/libkernel/Socket/include/SocketPoll.hpp"
@@ -644,43 +645,47 @@ void* ExtractCertName(const char* function, int sslCtxId, void* sslCert, bool su
 extern "C" {
 
 int APS5_VABI sceSslInit_nid_postfix(std::uint64_t poolSize) {
-    if (poolSize == 0) return ErrorKernelInvalid;
+    NetBridgeCall netCall("libSceSsl", __func__, [&](NetBridgeJson& netIn) { netIn.Uint("pool_size", poolSize); });
+    if (poolSize == 0) return netCall.Ret(ErrorKernelInvalid);
     auto& state = State();
     std::lock_guard lock(state.mutex);
     if (state.nextHandle > static_cast<unsigned>(std::numeric_limits<int>::max())) throw std::overflow_error("SSL context handles exhausted");
     const auto handle = static_cast<int>(state.nextHandle);
     state.contexts.emplace(handle, std::make_shared<Context>(poolSize));
     ++state.nextHandle;
-    return handle;
+    return netCall.Ret(handle);
 }
 
 int APS5_VABI sceSslTerm_nid_postfix(int sslCtxId) {
+    NetBridgeCall netCall("libSceSsl", __func__, [&](NetBridgeJson& netIn) { netIn.Int("ssl_ctx_id", sslCtxId); });
     auto& state = State();
     std::lock_guard lock(state.mutex);
-    if (!state.contexts.erase(sslCtxId)) return ErrorInvalidId;
-    return 0;
+    if (!state.contexts.erase(sslCtxId)) return netCall.Ret(ErrorInvalidId);
+    return netCall.Ret(0);
 }
 
 int APS5_VABI sceSslGetMemoryPoolStats(int sslCtxId, SceSsl::MemoryPoolStats* stats) {
-    if (!stats) return ErrorInvalidValue;
+    NetBridgeCall netCall("libSceSsl", __func__, [&](NetBridgeJson& netIn) { netIn.Int("ssl_ctx_id", sslCtxId); });
+    if (!stats) return netCall.Ret(ErrorInvalidValue);
     auto& state = State();
     std::lock_guard lock(state.mutex);
     const auto found = state.contexts.find(sslCtxId);
     if (found == state.contexts.end()) {
         std::memset(stats, 0, sizeof(*stats));
-        return ErrorInvalidId;
+        return netCall.Ret(ErrorInvalidId);
     }
     auto& pool = found->second->pool;
     std::lock_guard poolLock(pool.mutex);
     *stats = {pool.size, pool.peak, pool.current, 0};
-    return 0;
+    return netCall.Ret(0);
 }
 
 int APS5_VABI sceSslLoadCert(int sslCtxId, int caCertNum, SceSsl::Data** caList, SceSsl::Data* cert, SceSsl::Data* privateKey) {
+    NetBridgeCall netCall("libSceSsl", __func__, [&](NetBridgeJson& netIn) { netIn.Int("ssl_ctx_id", sslCtxId); netIn.Int("ca_cert_num", caCertNum); });
     auto& state = State();
     std::lock_guard lock(state.mutex);
     const auto found = state.contexts.find(sslCtxId);
-    if (found == state.contexts.end()) return ErrorInvalidId;
+    if (found == state.contexts.end()) return netCall.Ret(ErrorInvalidId);
     auto& context = *found->second;
     PoolScope scope(context.pool);
     std::vector<std::shared_ptr<CertificateChain>> authorities;
@@ -700,12 +705,12 @@ int APS5_VABI sceSslLoadCert(int sslCtxId, int caCertNum, SceSsl::Data** caList,
     for (auto& chain : authorities) context.authorities.push_back(std::move(chain));
     for (auto& handle : handles) context.certificateHandles.push_back(std::move(handle));
     if (cert) {
-        if (!cert->ptr) return static_cast<int>(0x80951771);
+        if (!cert->ptr) return netCall.Ret(static_cast<int>(0x80951771));
         context.identity = std::make_shared<Identity>();
         context.identity->chain = ParseCertificate(*cert);
     }
     if (privateKey) {
-        if (!privateKey->ptr) return static_cast<int>(0x80951771);
+        if (!privateKey->ptr) return netCall.Ret(static_cast<int>(0x80951771));
         if (!context.identity) context.identity = std::make_shared<Identity>();
         auto identity = std::make_shared<Identity>(*context.identity);
         context.identity = identity;
@@ -714,10 +719,11 @@ int APS5_VABI sceSslLoadCert(int sslCtxId, int caCertNum, SceSsl::Data** caList,
         std::memcpy(bytes.get(), privateKey->ptr, privateKey->size);
         identity->key = std::make_shared<EncodedPrivateKey>(EncodedPrivateKey{std::move(bytes), privateKey->size});
     }
-    return 0;
+    return netCall.Ret(0);
 }
 
 int APS5_VABI sceSslUnloadCert(int sslCtxId) {
+    NetBridgeCall netCall("libSceSsl", __func__, [&](NetBridgeJson& netIn) { netIn.Int("ssl_ctx_id", sslCtxId); });
     auto& state = State();
     std::lock_guard lock(state.mutex);
     const auto found = state.contexts.find(sslCtxId);
@@ -725,26 +731,27 @@ int APS5_VABI sceSslUnloadCert(int sslCtxId) {
         const auto* parameters = static_cast<const std::byte*>(ApplicationProcessParameters_nid_no_patch());
         std::uint32_t sdkVersion;
         std::memcpy(&sdkVersion, parameters + 16, sizeof(sdkVersion));
-        return sdkVersion < 0x07500000 ? 0 : ErrorInvalidId;
+        return netCall.Ret(sdkVersion < 0x07500000 ? 0 : ErrorInvalidId);
     }
     auto& context = *found->second;
     context.authorities.clear();
     context.identity.reset();
-    return 0;
+    return netCall.Ret(0);
 }
 
 int APS5_VABI sceSslGetCaList(int sslCtxId, SceSsl::CaList* output) {
-    if (!output) return ErrorInvalidValue;
+    NetBridgeCall netCall("libSceSsl", __func__, [&](NetBridgeJson& netIn) { netIn.Int("ssl_ctx_id", sslCtxId); });
+    if (!output) return netCall.Ret(ErrorInvalidValue);
     auto& state = State();
     std::lock_guard lock(state.mutex);
     const auto found = state.contexts.find(sslCtxId);
-    if (found == state.contexts.end()) return ErrorInvalidId;
+    if (found == state.contexts.end()) return netCall.Ret(ErrorInvalidId);
     auto& context = *found->second;
     PoolScope scope(context.pool);
     const auto count = CertificateCount(context);
     if (!count) {
         *output = {};
-        return ErrorNotFound;
+        return netCall.Ret(ErrorNotFound);
     }
     if (count > static_cast<std::size_t>(std::numeric_limits<int>::max())) throw std::length_error("Too many SSL authorities");
     Snapshot snapshot{Allocate(count * sizeof(void*)), context.authorities, count};
@@ -753,35 +760,37 @@ int APS5_VABI sceSslGetCaList(int sslCtxId, SceSsl::CaList* output) {
     for (const auto& chain : snapshot.certificates) for (auto* handle : chain->handles) pointers[index++] = handle;
     context.caLists.emplace(pointers, std::move(snapshot));
     *output = {pointers, static_cast<int>(count)};
-    return 0;
+    return netCall.Ret(0);
 }
 
 int APS5_VABI sceSslFreeCaList(int sslCtxId, SceSsl::CaList* list) {
-    if (!list) return ErrorInvalidArg;
+    NetBridgeCall netCall("libSceSsl", __func__, [&](NetBridgeJson& netIn) { netIn.Int("ssl_ctx_id", sslCtxId); });
+    if (!list) return netCall.Ret(ErrorInvalidArg);
     auto& state = State();
     std::lock_guard lock(state.mutex);
     auto& context = GetContext(sslCtxId);
-    if (!list->certs && list->num == 0) return 0;
+    if (!list->certs && list->num == 0) return netCall.Ret(0);
     const auto found = context.caLists.find(list->certs);
     if (found == context.caLists.end() || list->num < 0 || static_cast<std::size_t>(list->num) != found->second.count)
         throw std::invalid_argument("Invalid SSL CA list allocation");
     context.caLists.erase(found);
     *list = {};
-    return 0;
+    return netCall.Ret(0);
 }
 
 int APS5_VABI sceSslGetCaCerts(int sslCtxId, SceSsl::CaCerts* output) {
+    NetBridgeCall netCall("libSceSsl", __func__, [&](NetBridgeJson& netIn) { netIn.Int("ssl_ctx_id", sslCtxId); });
     auto& state = State();
     std::lock_guard lock(state.mutex);
     const auto found = state.contexts.find(sslCtxId);
-    if (found == state.contexts.end()) return ErrorInvalidId;
-    if (!output) return ErrorInvalidValue;
+    if (found == state.contexts.end()) return netCall.Ret(ErrorInvalidId);
+    if (!output) return netCall.Ret(ErrorInvalidValue);
     auto& context = *found->second;
     PoolScope scope(context.pool);
     const auto count = CertificateCount(context);
     if (!count) {
         *output = {};
-        return ErrorNotFound;
+        return netCall.Ret(ErrorNotFound);
     }
     if (count > std::numeric_limits<std::size_t>::max() / sizeof(SceSsl::Data)) throw std::length_error("Too many SSL authorities");
     auto total = count * sizeof(SceSsl::Data);
@@ -800,11 +809,12 @@ int APS5_VABI sceSslGetCaCerts(int sslCtxId, SceSsl::CaCerts* output) {
     }
     context.caCerts.emplace(data, std::move(snapshot));
     *output = {data, count, data};
-    return 0;
+    return netCall.Ret(0);
 }
 
 int APS5_VABI sceSslFreeCaCerts(int sslCtxId, SceSsl::CaCerts* certificates) {
-    if (!certificates) return ErrorInvalidArg;
+    NetBridgeCall netCall("libSceSsl", __func__, [&](NetBridgeJson& netIn) { netIn.Int("ssl_ctx_id", sslCtxId); });
+    if (!certificates) return netCall.Ret(ErrorInvalidArg);
     auto& state = State();
     std::lock_guard lock(state.mutex);
     const auto found = state.contexts.find(sslCtxId);
@@ -818,38 +828,41 @@ int APS5_VABI sceSslFreeCaCerts(int sslCtxId, SceSsl::CaCerts* certificates) {
         }
     }
     *certificates = {};
-    return 0;
+    return netCall.Ret(0);
 }
 
 int APS5_VABI sceSslCreateConnection(int sslCtxId, int sockId, const char* host) {
-    if (!host) return ErrorInvalidValue;
+    NetBridgeCall netCall("libSceSsl", __func__, [&](NetBridgeJson& netIn) { netIn.Int("ssl_ctx_id", sslCtxId); netIn.Int("sock_id", sockId); netIn.Text("host", host); });
+    if (!host) return netCall.Ret(ErrorInvalidValue);
     std::lock_guard lock(State().mutex);
-    if (!State().contexts.contains(sslCtxId)) return ErrorInvalidId;
+    if (!State().contexts.contains(sslCtxId)) return netCall.Ret(ErrorInvalidId);
     auto& state = State();
     if (state.nextHandle > static_cast<unsigned>(std::numeric_limits<int>::max())) throw std::overflow_error("SSL connection handles exhausted");
     const auto id = static_cast<int>(state.nextHandle);
     state.connections.emplace(id, SslConnection{sslCtxId, sockId, host, nullptr, nullptr});
     ++state.nextHandle;
-    return id;
+    return netCall.Ret(id);
 }
 
 int APS5_VABI sceSslDeleteConnection(int sslConnectionId) {
+    NetBridgeCall netCall("libSceSsl", __func__, [&](NetBridgeJson& netIn) { netIn.Int("ssl_connection_id", sslConnectionId); });
     std::shared_ptr<Session> session;
     std::lock_guard lock(State().mutex);
     auto* connection = FindConnection(sslConnectionId);
-    if (!connection) return ErrorInvalidId;
+    if (!connection) return netCall.Ret(ErrorInvalidId);
     session = std::move(connection->session);
     State().connections.erase(sslConnectionId);
-    return 0;
+    return netCall.Ret(0);
 }
 
 int APS5_VABI sceSslSetVerifyCallback(int sslConnectionId, SslVerifyCallback cbfunc, void* userArg) {
+    NetBridgeCall netCall("libSceSsl", __func__, [&](NetBridgeJson& netIn) { netIn.Int("ssl_connection_id", sslConnectionId); });
     std::lock_guard lock(State().mutex);
     auto* connection = FindConnection(sslConnectionId);
-    if (!connection) return ErrorInvalidId;
+    if (!connection) return netCall.Ret(ErrorInvalidId);
     connection->verifyCallback = cbfunc;
     connection->verifyArgument = userArg;
-    return 0;
+    return netCall.Ret(0);
 }
 
 }
@@ -938,12 +951,14 @@ int Establish(const char* function, int sslConnectionId, std::shared_ptr<Session
 extern "C" {
 
 int APS5_VABI sceSslConnect(int sslConnectionId) {
+    NetBridgeCall netCall("libSceSsl", __func__, [&](NetBridgeJson& netIn) { netIn.Int("ssl_connection_id", sslConnectionId); });
     std::shared_ptr<Session> session;
-    return Establish(__func__, sslConnectionId, session);
+    return netCall.Ret(Establish(__func__, sslConnectionId, session));
 }
 
 int APS5_VABI sceSslRead(int sslConnectionId, void* buf, size_t len, int flags) {
-    if (static_cast<unsigned int>(flags) > 3) return ErrorInvalidValue;
+    NetBridgeCall netCall("libSceSsl", __func__, [&](NetBridgeJson& netIn) { netIn.Int("ssl_connection_id", sslConnectionId); netIn.Uint("len", len); netIn.Int("flags", flags); });
+    if (static_cast<unsigned int>(flags) > 3) return netCall.Ret(ErrorInvalidValue);
     if (!buf && len) throw std::invalid_argument("sceSslRead: null buffer");
     std::shared_ptr<Session> session;
     if (const int code = Establish(__func__, sslConnectionId, session)) {
@@ -951,11 +966,11 @@ int APS5_VABI sceSslRead(int sslConnectionId, void* buf, size_t len, int flags) 
             std::lock_guard sessionLock(session->mutex);
             RequireUsable(__func__, *session);
         }
-        return code;
+        return netCall.Ret(code);
     }
     std::lock_guard sessionLock(session->mutex);
-    if (session->gone || session->closed) return 0;
-    if (session->reset) return ErrorNetReset;
+    if (session->gone || session->closed) return netCall.Ret(0);
+    if (session->reset) return netCall.Ret(ErrorNetReset);
     PoolScope scope(session->context->pool);
     auto* bytes = static_cast<unsigned char*>(buf);
     const auto total = std::min<std::size_t>(len, INT_MAX);
@@ -992,13 +1007,14 @@ int APS5_VABI sceSslRead(int sslConnectionId, void* buf, size_t len, int flags) 
         const int code = session->Code(result, Operation::Read);
         if (code == 0) session->Fail(__func__, result);
         if (received) break;
-        return code;
+        return netCall.Ret(code);
     }
-    return static_cast<int>(received);
+    return netCall.Ret(static_cast<int>(received));
 }
 
 int APS5_VABI sceSslWrite(int sslConnectionId, void* buf, size_t len, int flags) {
-    if (flags != 0) return ErrorInvalidValue;
+    NetBridgeCall netCall("libSceSsl", __func__, [&](NetBridgeJson& netIn) { netIn.Int("ssl_connection_id", sslConnectionId); netIn.Uint("len", len); netIn.Int("flags", flags); });
+    if (flags != 0) return netCall.Ret(ErrorInvalidValue);
     if (!buf && len) throw std::invalid_argument("sceSslWrite: null buffer");
     std::shared_ptr<Session> session;
     if (const int code = Establish(__func__, sslConnectionId, session)) {
@@ -1006,12 +1022,12 @@ int APS5_VABI sceSslWrite(int sslConnectionId, void* buf, size_t len, int flags)
             std::lock_guard sessionLock(session->mutex);
             RequireUsable(__func__, *session);
         }
-        return code;
+        return netCall.Ret(code);
     }
     std::lock_guard sessionLock(session->mutex);
-    if (session->gone) return ErrorSocketClosed;
+    if (session->gone) return netCall.Ret(ErrorSocketClosed);
     if (session->closed) throw std::logic_error("sceSslWrite: the connection was closed; the console's behaviour is unknown");
-    if (session->reset) return ErrorNetPipe;
+    if (session->reset) return netCall.Ret(ErrorNetPipe);
     PoolScope scope(session->context->pool);
     const auto* bytes = static_cast<const unsigned char*>(buf);
     const auto total = std::min<std::size_t>(len, INT_MAX);
@@ -1022,74 +1038,80 @@ int APS5_VABI sceSslWrite(int sslConnectionId, void* buf, size_t len, int flags)
             const int code = session->Code(result, Operation::Write);
             if (code == 0) session->Fail(__func__, result);
             if (written) break;
-            return code;
+            return netCall.Ret(code);
         }
         written += static_cast<std::size_t>(result);
     }
-    return static_cast<int>(written);
+    return netCall.Ret(static_cast<int>(written));
 }
 
 int APS5_VABI sceSslClose(int sslConnectionId) {
+    NetBridgeCall netCall("libSceSsl", __func__, [&](NetBridgeJson& netIn) { netIn.Int("ssl_connection_id", sslConnectionId); });
     std::shared_ptr<Session> session;
     {
         std::lock_guard lock(State().mutex);
         auto* connection = FindConnection(sslConnectionId);
-        if (!connection) return ErrorInvalidId;
+        if (!connection) return netCall.Ret(ErrorInvalidId);
         session = connection->session;
     }
-    if (!session) return 0;
+    if (!session) return netCall.Ret(0);
     std::lock_guard sessionLock(session->mutex);
-    if (session->gone || session->closed || !session->handshaken) return 0;
-    if (session->reset) return ErrorNetReset;
+    if (session->gone || session->closed || !session->handshaken) return netCall.Ret(0);
+    if (session->reset) return netCall.Ret(ErrorNetReset);
     PoolScope scope(session->context->pool);
     const int result = mbedtls_ssl_close_notify(&session->ssl);
-    if (result == MBEDTLS_ERR_SSL_WANT_WRITE || result == MBEDTLS_ERR_SSL_WANT_READ) return session->Code(result, Operation::Close);
-    if (result == MBEDTLS_ERR_NET_CONN_RESET) return session->Code(result, Operation::Close);
+    if (result == MBEDTLS_ERR_SSL_WANT_WRITE || result == MBEDTLS_ERR_SSL_WANT_READ) return netCall.Ret(session->Code(result, Operation::Close));
+    if (result == MBEDTLS_ERR_NET_CONN_RESET) return netCall.Ret(session->Code(result, Operation::Close));
     if (result != 0) session->Fail(__func__, result);
     session->closed = true;
-    return 0;
+    return netCall.Ret(0);
 }
 
 int APS5_VABI sceSslGetSerialNumber(int sslCtxId, void* sslCert, unsigned char* sboData, std::size_t* sboLen) {
+    NetBridgeCall netCall("libSceSsl", __func__, [&](NetBridgeJson& netIn) { netIn.Int("ssl_ctx_id", sslCtxId); });
     std::lock_guard lock(State().mutex);
-    if (!State().contexts.contains(sslCtxId)) return ErrorInvalidId;
-    if (!sslCert) return ErrorInvalidValue;
+    if (!State().contexts.contains(sslCtxId)) return netCall.Ret(ErrorInvalidId);
+    if (!sslCert) return netCall.Ret(ErrorInvalidValue);
     const auto* crt = RequireCertificate(__func__, sslCtxId, sslCert);
     if (!sboData) {
         if (sboLen) *sboLen = crt->serial.len;
-        return 0;
+        return netCall.Ret(0);
     }
     if (!sboLen) throw std::invalid_argument("sceSslGetSerialNumber: output buffer requires a length pointer");
     const auto copyLength = std::min(*sboLen, crt->serial.len);
     if (copyLength != 0) std::memcpy(sboData, crt->serial.p, copyLength);
-    return 0;
+    return netCall.Ret(0);
 }
 
 int APS5_VABI sceSslFreeSslCertName(int sslCtxId, void* certName) {
+    NetBridgeCall netCall("libSceSsl", __func__, [&](NetBridgeJson& netIn) { netIn.Int("ssl_ctx_id", sslCtxId); });
     std::lock_guard lock(State().mutex);
-    if (!State().contexts.contains(sslCtxId)) return ErrorInvalidId;
-    return certName ? 0 : ErrorInvalidValue;
+    if (!State().contexts.contains(sslCtxId)) return netCall.Ret(ErrorInvalidId);
+    return netCall.Ret(certName ? 0 : ErrorInvalidValue);
 }
 
 int APS5_VABI sceSslEnableVerifyOption(int sslConnectionId, std::uint32_t option) {
+    NetBridgeCall netCall("libSceSsl", __func__, [&](NetBridgeJson& netIn) { netIn.Int("ssl_connection_id", sslConnectionId); netIn.Uint("option", option); });
     std::lock_guard lock(State().mutex);
     auto* connection = FindConnection(sslConnectionId);
-    if (!connection) return ErrorInvalidId;
-    if (option & ~VerifyOptionMask) return ErrorInvalidValue;
+    if (!connection) return netCall.Ret(ErrorInvalidId);
+    if (option & ~VerifyOptionMask) return netCall.Ret(ErrorInvalidValue);
     connection->verifyOptions |= option;
-    return 0;
+    return netCall.Ret(0);
 }
 
 int APS5_VABI sceSslDisableVerifyOption(int sslConnectionId, std::uint32_t option) {
+    NetBridgeCall netCall("libSceSsl", __func__, [&](NetBridgeJson& netIn) { netIn.Int("ssl_connection_id", sslConnectionId); netIn.Uint("option", option); });
     std::lock_guard lock(State().mutex);
     auto* connection = FindConnection(sslConnectionId);
-    if (!connection) return ErrorInvalidId;
-    if (option & ~VerifyOptionMask) return ErrorInvalidValue;
+    if (!connection) return netCall.Ret(ErrorInvalidId);
+    if (option & ~VerifyOptionMask) return netCall.Ret(ErrorInvalidValue);
     connection->verifyOptions &= ~option;
-    return 0;
+    return netCall.Ret(0);
 }
 
 const char* APS5_VABI sceSslGetAlpnSelected(int sslConnectionId) {
+    NetBridgeCall netCall("libSceSsl", __func__, [&](NetBridgeJson& netIn) { netIn.Int("ssl_connection_id", sslConnectionId); });
     std::shared_ptr<Session> session;
     {
         std::lock_guard lock(State().mutex);
@@ -1104,61 +1126,66 @@ const char* APS5_VABI sceSslGetAlpnSelected(int sslConnectionId) {
 }
 
 int APS5_VABI sceSslSetAlpn(int sslConnectionId, const char* proto) {
+    NetBridgeCall netCall("libSceSsl", __func__, [&](NetBridgeJson& netIn) { netIn.Int("ssl_connection_id", sslConnectionId); });
     std::lock_guard lock(State().mutex);
     auto* connection = FindConnection(sslConnectionId);
-    if (!connection) return ErrorInvalidId;
+    if (!connection) return netCall.Ret(ErrorInvalidId);
     connection->alpn.clear();
-    if (!proto) return 0;
+    if (!proto) return netCall.Ret(0);
     std::size_t length = 0;
     while (length < 65535 && proto[length] != 0) ++length;
-    if (length >= 65535) return ErrorBadLength;
+    if (length >= 65535) return netCall.Ret(ErrorBadLength);
     std::size_t tokenLength = 0;
     for (std::size_t index = 0; index <= length; ++index) {
         if (index == length || proto[index] == ',') {
-            if (tokenLength == 0 || tokenLength > 255) return ErrorBadLength;
+            if (tokenLength == 0 || tokenLength > 255) return netCall.Ret(ErrorBadLength);
             tokenLength = 0;
         } else {
             ++tokenLength;
         }
     }
     connection->alpn.assign(proto, length);
-    return 0;
+    return netCall.Ret(0);
 }
 
 int APS5_VABI sceSslSetMinSslVersion(int sslConnectionId, int version) {
+    NetBridgeCall netCall("libSceSsl", __func__, [&](NetBridgeJson& netIn) { netIn.Int("ssl_connection_id", sslConnectionId); netIn.Int("version", version); });
     std::lock_guard lock(State().mutex);
     auto* connection = FindConnection(sslConnectionId);
-    if (!connection) return ErrorInvalidId;
-    if (version < SslVersionSsl30 || version > SslVersionTls12) return ErrorInvalidValue;
+    if (!connection) return netCall.Ret(ErrorInvalidId);
+    if (version < SslVersionSsl30 || version > SslVersionTls12) return netCall.Ret(ErrorInvalidValue);
     connection->minimumVersion = version;
-    return 0;
+    return netCall.Ret(0);
 }
 
 void* APS5_VABI sceSslGetIssuerName(int sslCtxId, void* sslCert) {
+    NetBridgeCall netCall("libSceSsl", __func__, [&](NetBridgeJson& netIn) { netIn.Int("ssl_ctx_id", sslCtxId); });
     return ExtractCertName(__func__, sslCtxId, sslCert, false);
 }
 
 int APS5_VABI sceSslGetNameEntryCount(int sslCtxId, void* certName) {
+    NetBridgeCall netCall("libSceSsl", __func__, [&](NetBridgeJson& netIn) { netIn.Int("ssl_ctx_id", sslCtxId); });
     auto& state = State();
     std::lock_guard lock(state.mutex);
-    if (!state.contexts.contains(sslCtxId)) return ErrorInvalidId;
-    if (!certName) return ErrorInvalidValue;
+    if (!state.contexts.contains(sslCtxId)) return netCall.Ret(ErrorInvalidId);
+    if (!certName) return netCall.Ret(ErrorInvalidValue);
     auto& context = GetContext(sslCtxId);
     const auto found = context.certNames.find(certName);
     if (found == context.certNames.end() || found->second->owner.expired()) throw std::invalid_argument("sceSslGetNameEntryCount: unknown or expired cert name");
-    return static_cast<int>(found->second->entries.size());
+    return netCall.Ret(static_cast<int>(found->second->entries.size()));
 }
 
 int APS5_VABI sceSslGetNameEntryInfo(int sslCtxId, void* certName, int entryNum, char* oidname, std::size_t maxOidnameLen, char* value, std::size_t maxValueLen, std::size_t* valueLen) {
+    NetBridgeCall netCall("libSceSsl", __func__, [&](NetBridgeJson& netIn) { netIn.Int("ssl_ctx_id", sslCtxId); netIn.Int("entry_num", entryNum); netIn.Uint("max_oidname_len", maxOidnameLen); netIn.Uint("max_value_len", maxValueLen); });
     auto& state = State();
     std::lock_guard lock(state.mutex);
-    if (!state.contexts.contains(sslCtxId)) return ErrorInvalidId;
-    if (!certName || !oidname || !value || !valueLen) return ErrorInvalidValue;
+    if (!state.contexts.contains(sslCtxId)) return netCall.Ret(ErrorInvalidId);
+    if (!certName || !oidname || !value || !valueLen) return netCall.Ret(ErrorInvalidValue);
     auto& context = GetContext(sslCtxId);
     const auto found = context.certNames.find(certName);
     if (found == context.certNames.end() || found->second->owner.expired()) throw std::invalid_argument("sceSslGetNameEntryInfo: unknown or expired cert name");
     const auto& entries = found->second->entries;
-    if (entryNum < 0 || static_cast<std::size_t>(entryNum) >= entries.size()) return ErrorInvalidValue;
+    if (entryNum < 0 || static_cast<std::size_t>(entryNum) >= entries.size()) return netCall.Ret(ErrorInvalidValue);
     const auto& entry = entries[static_cast<std::size_t>(entryNum)];
     const auto copyLength = std::min(entry.value.size(), maxValueLen);
     if (copyLength != 0) std::memcpy(value, entry.value.data(), copyLength);
@@ -1167,31 +1194,34 @@ int APS5_VABI sceSslGetNameEntryInfo(int sslCtxId, void* certName, int entryNum,
         std::memset(oidname, 0, maxOidnameLen);
         std::memcpy(oidname, entry.oid.data(), std::min(entry.oid.size(), maxOidnameLen));
     }
-    return 0;
+    return netCall.Ret(0);
 }
 
 int APS5_VABI sceSslGetNotBefore(int sslCtxId, void* sslCert, SceSsl::RtcTick* begin) {
+    NetBridgeCall netCall("libSceSsl", __func__, [&](NetBridgeJson& netIn) { netIn.Int("ssl_ctx_id", sslCtxId); });
     std::lock_guard lock(State().mutex);
-    if (!State().contexts.contains(sslCtxId)) return ErrorInvalidId;
-    if (!sslCert || !begin) return ErrorInvalidValue;
+    if (!State().contexts.contains(sslCtxId)) return netCall.Ret(ErrorInvalidId);
+    if (!sslCert || !begin) return netCall.Ret(ErrorInvalidValue);
     const auto* crt = RequireCertificate(__func__, sslCtxId, sslCert);
     begin->tick = TimeToTick(crt->valid_from);
-    return 0;
+    return netCall.Ret(0);
 }
 
 int APS5_VABI sceSslGetNotAfter(int sslCtxId, void* sslCert, SceSsl::RtcTick* limit) {
+    NetBridgeCall netCall("libSceSsl", __func__, [&](NetBridgeJson& netIn) { netIn.Int("ssl_ctx_id", sslCtxId); });
     std::lock_guard lock(State().mutex);
-    if (!State().contexts.contains(sslCtxId)) return ErrorInvalidId;
-    if (!sslCert || !limit) return ErrorInvalidValue;
+    if (!State().contexts.contains(sslCtxId)) return netCall.Ret(ErrorInvalidId);
+    if (!sslCert || !limit) return netCall.Ret(ErrorInvalidValue);
     const auto* crt = RequireCertificate(__func__, sslCtxId, sslCert);
     limit->tick = TimeToTick(crt->valid_to);
-    return 0;
+    return netCall.Ret(0);
 }
 
 int APS5_VABI sceSslGetFingerprint(int sslCtxId, void* sslCert, int hashType, unsigned char* fingerprint) {
+    NetBridgeCall netCall("libSceSsl", __func__, [&](NetBridgeJson& netIn) { netIn.Int("ssl_ctx_id", sslCtxId); netIn.Int("hash_type", hashType); });
     std::lock_guard lock(State().mutex);
-    if (!State().contexts.contains(sslCtxId)) return ErrorInvalidId;
-    if (!sslCert || !fingerprint) return ErrorInvalidValue;
+    if (!State().contexts.contains(sslCtxId)) return netCall.Ret(ErrorInvalidId);
+    if (!sslCert || !fingerprint) return netCall.Ret(ErrorInvalidValue);
     mbedtls_md_type_t mdType;
     switch (hashType) {
     case 0: mdType = MBEDTLS_MD_MD5; break;
@@ -1200,16 +1230,17 @@ int APS5_VABI sceSslGetFingerprint(int sslCtxId, void* sslCert, int hashType, un
     case 3: mdType = MBEDTLS_MD_SHA256; break;
     case 4: mdType = MBEDTLS_MD_SHA384; break;
     case 5: mdType = MBEDTLS_MD_SHA512; break;
-    default: return ErrorInvalidArg;
+    default: return netCall.Ret(ErrorInvalidArg);
     }
     const auto* info = mbedtls_md_info_from_type(mdType);
-    if (!info) return ErrorInvalidArg;
+    if (!info) return netCall.Ret(ErrorInvalidArg);
     const auto* crt = RequireCertificate(__func__, sslCtxId, sslCert);
-    if (mbedtls_md(info, crt->raw.p, crt->raw.len, fingerprint) != 0) return ErrorInvalidArg;
-    return 0;
+    if (mbedtls_md(info, crt->raw.p, crt->raw.len, fingerprint) != 0) return netCall.Ret(ErrorInvalidArg);
+    return netCall.Ret(0);
 }
 
 int APS5_VABI sceSslGetPem(int sslCtxId, void* sslCert, char* buf, std::size_t* bufLen) {
+    NetBridgeCall netCall("libSceSsl", __func__, [&](NetBridgeJson& netIn) { netIn.Int("ssl_ctx_id", sslCtxId); });
     if (!sslCert || !bufLen) return ErrorInvalidValue;
     std::lock_guard lock(State().mutex);
     if (!State().contexts.contains(sslCtxId)) return ErrorInvalidId;
@@ -1238,120 +1269,144 @@ int APS5_VABI sceSslGetPem(int sslCtxId, void* sslCert, char* buf, std::size_t* 
 }
 
 void* APS5_VABI sceSslGetSubjectName(int sslCtxId, void* sslCert) {
+    NetBridgeCall netCall("libSceSsl", __func__, [&](NetBridgeJson& netIn) { netIn.Int("ssl_ctx_id", sslCtxId); });
     return ExtractCertName(__func__, sslCtxId, sslCert, true);
 }
 
 int APS5_VABI CA_MGMT_extractKeyBlobEx() {
+    NetBridgeCall netCall("libSceSsl", __func__);
     NotImplemented_nid_no_patch(__func__);
-    return 0;
+    return netCall.Ret(0);
 }
 
 int APS5_VABI CA_MGMT_extractPublicKeyInfo() {
+    NetBridgeCall netCall("libSceSsl", __func__);
     NotImplemented_nid_no_patch(__func__);
-    return 0;
+    return netCall.Ret(0);
 }
 
 int APS5_VABI CA_MGMT_freeKeyBlob() {
+    NetBridgeCall netCall("libSceSsl", __func__);
     NotImplemented_nid_no_patch(__func__);
-    return 0;
+    return netCall.Ret(0);
 }
 
 int APS5_VABI CRYPTO_initAsymmetricKey() {
+    NetBridgeCall netCall("libSceSsl", __func__);
     NotImplemented_nid_no_patch(__func__);
-    return 0;
+    return netCall.Ret(0);
 }
 
 int APS5_VABI CRYPTO_uninitAsymmetricKey() {
+    NetBridgeCall netCall("libSceSsl", __func__);
     NotImplemented_nid_no_patch(__func__);
-    return 0;
+    return netCall.Ret(0);
 }
 
 int APS5_VABI RSA_verifySignature() {
+    NetBridgeCall netCall("libSceSsl", __func__);
     NotImplemented_nid_no_patch(__func__);
-    return 0;
+    return netCall.Ret(0);
 }
 
 int APS5_VABI VLONG_freeVlongQueue() {
+    NetBridgeCall netCall("libSceSsl", __func__);
     NotImplemented_nid_no_patch(__func__);
-    return 0;
+    return netCall.Ret(0);
 }
 
 int APS5_VABI sceSslCheckRecvPending() {
+    NetBridgeCall netCall("libSceSsl", __func__);
     NotImplemented_nid_no_patch(__func__);
-    return 0;
+    return netCall.Ret(0);
 }
 
 int APS5_VABI sceSslCreateSslConnection() {
+    NetBridgeCall netCall("libSceSsl", __func__);
     NotImplemented_nid_no_patch(__func__);
-    return 0;
+    return netCall.Ret(0);
 }
 
 int APS5_VABI sceSslDeleteSslConnection() {
+    NetBridgeCall netCall("libSceSsl", __func__);
     NotImplemented_nid_no_patch(__func__);
-    return 0;
+    return netCall.Ret(0);
 }
 
 int APS5_VABI sceSslDisableOption() {
+    NetBridgeCall netCall("libSceSsl", __func__);
     NotImplemented_nid_no_patch(__func__);
-    return 0;
+    return netCall.Ret(0);
 }
 
 int APS5_VABI sceSslDisableOptionInternal() {
+    NetBridgeCall netCall("libSceSsl", __func__);
     NotImplemented_nid_no_patch(__func__);
-    return 0;
+    return netCall.Ret(0);
 }
 
 int APS5_VABI sceSslDisableOptionInternalInsecure() {
+    NetBridgeCall netCall("libSceSsl", __func__);
     NotImplemented_nid_no_patch(__func__);
-    return 0;
+    return netCall.Ret(0);
 }
 
 int APS5_VABI sceSslEnableOption() {
+    NetBridgeCall netCall("libSceSsl", __func__);
     NotImplemented_nid_no_patch(__func__);
-    return 0;
+    return netCall.Ret(0);
 }
 
 int APS5_VABI sceSslEnableOptionInternal() {
+    NetBridgeCall netCall("libSceSsl", __func__);
     NotImplemented_nid_no_patch(__func__);
-    return 0;
+    return netCall.Ret(0);
 }
 
 int APS5_VABI sceSslGetNanoSSLModuleId() {
+    NetBridgeCall netCall("libSceSsl", __func__);
     NotImplemented_nid_no_patch(__func__);
-    return 0;
+    return netCall.Ret(0);
 }
 
 int APS5_VABI sceSslGetPeerCert() {
+    NetBridgeCall netCall("libSceSsl", __func__);
     NotImplemented_nid_no_patch(__func__);
-    return 0;
+    return netCall.Ret(0);
 }
 
 int APS5_VABI sceSslGetSslError() {
+    NetBridgeCall netCall("libSceSsl", __func__);
     NotImplemented_nid_no_patch(__func__);
-    return 0;
+    return netCall.Ret(0);
 }
 
 int APS5_VABI sceSslLoadRootCACert() {
+    NetBridgeCall netCall("libSceSsl", __func__);
     NotImplemented_nid_no_patch(__func__);
-    return 0;
+    return netCall.Ret(0);
 }
 
 int APS5_VABI sceSslRecv(int sslConnectionId, void* buf, std::size_t fulllen) {
-    return sceSslRead(sslConnectionId, buf, fulllen, 0);
+    NetBridgeCall netCall("libSceSsl", __func__, [&](NetBridgeJson& netIn) { netIn.Int("ssl_connection_id", sslConnectionId); netIn.Uint("fulllen", fulllen); });
+    return netCall.Ret(sceSslRead(sslConnectionId, buf, fulllen, 0));
 }
 
 int APS5_VABI sceSslReuseConnection(int sslConnectionId, int sockId) {
+    NetBridgeCall netCall("libSceSsl", __func__, [&](NetBridgeJson& netIn) { netIn.Int("ssl_connection_id", sslConnectionId); netIn.Int("sock_id", sockId); });
     NotImplemented_nid_no_patch(__func__);
-    return 0;
+    return netCall.Ret(0);
 }
 
 int APS5_VABI sceSslSend(int sslConnectionId, void* msg, std::size_t fulllen) {
-    return sceSslWrite(sslConnectionId, msg, fulllen, 0);
+    NetBridgeCall netCall("libSceSsl", __func__, [&](NetBridgeJson& netIn) { netIn.Int("ssl_connection_id", sslConnectionId); netIn.Uint("fulllen", fulllen); });
+    return netCall.Ret(sceSslWrite(sslConnectionId, msg, fulllen, 0));
 }
 
 int APS5_VABI sceSslSetSslVersion() {
+    NetBridgeCall netCall("libSceSsl", __func__);
     NotImplemented_nid_no_patch(__func__);
-    return 0;
+    return netCall.Ret(0);
 }
 
 }
