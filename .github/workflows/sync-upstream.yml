@@ -112,7 +112,15 @@ jobs:
           - [x] AI-assisted: no
           EOF
           if [ -z "$number" ]; then
-            number=$(gh pr create --head "$BRANCH" --base main --title "chore(sync): sync fork with upstream boykopovar/AnyPS5 main" --body-file body.md | grep -o '[0-9]*$')
+            if ! number=$(gh pr create --head "$BRANCH" --base main --title "chore(sync): sync fork with upstream boykopovar/AnyPS5 main" --body-file body.md | grep -o '[0-9]*$'); then
+              {
+                echo "The branch $BRANCH is pushed and merges upstream main, but this workflow could not open the pull request. Open it here: https://github.com/$GITHUB_REPOSITORY/compare/main...$BRANCH?expand=1"
+                echo
+                echo "The organisation setting Actions > General > Allow GitHub Actions to create and approve pull requests lets this job open it itself."
+              } >> "$GITHUB_STEP_SUMMARY"
+              echo "::warning::the sync branch is pushed, open the pull request from the link in the job summary"
+              exit 0
+            fi
           else
             gh pr edit "$number" --body-file body.md
           fi
