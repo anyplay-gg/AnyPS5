@@ -4,6 +4,7 @@
 #include <string>
 #include <utility>
 #include "NpUniversalDataSystem.hpp"
+#include "prx/libSceNetCtl/include/NetBridge.hpp"
 #include "SceTypes.hpp"
 #include "prx/libc/include/General.hpp"
 
@@ -19,107 +20,118 @@ Uds::Owned<NpUniversalDataSystemEventPropertyArray>& arrays() {
 extern "C" {
 
 int APS5_VABI sceNpUniversalDataSystemCreateEventPropertyArray(NpUniversalDataSystemEventPropertyArray** new_array) {
+    NetBridgeCall netCall("libSceNpUniversalDataSystem", __func__);
     if (new_array == nullptr) {
         APS5_INVALID_ARG_EX;
     }
     *new_array = arrays().Adopt(std::make_unique<NpUniversalDataSystemEventPropertyArray>());
-    return SCE_NP_UNIVERSAL_DATA_SYSTEM_OK;
+    return netCall.Ret(SCE_NP_UNIVERSAL_DATA_SYSTEM_OK);
 }
 
 int APS5_VABI sceNpUniversalDataSystemDestroyEventPropertyArray(NpUniversalDataSystemEventPropertyArray* array) {
+    NetBridgeCall netCall("libSceNpUniversalDataSystem", __func__);
     arrays().Release(array);
-    return SCE_NP_UNIVERSAL_DATA_SYSTEM_OK;
+    return netCall.Ret(SCE_NP_UNIVERSAL_DATA_SYSTEM_OK);
 }
 
 int APS5_VABI sceNpUniversalDataSystemEventPropertyArraySetString(
     NpUniversalDataSystemEventPropertyArray* array, const char* value)
 {
+    NetBridgeCall netCall("libSceNpUniversalDataSystem", __func__);
     if (array == nullptr || value == nullptr) {
         APS5_INVALID_ARG_EX;
     }
     array->Add(std::string(value));
-    return SCE_NP_UNIVERSAL_DATA_SYSTEM_OK;
+    return netCall.Ret(SCE_NP_UNIVERSAL_DATA_SYSTEM_OK);
 }
 
 int APS5_VABI sceNpUniversalDataSystemEventPropertyArraySetInt32(
     NpUniversalDataSystemEventPropertyArray* array, int32_t value)
 {
+    NetBridgeCall netCall("libSceNpUniversalDataSystem", __func__, [&](NetBridgeJson& netIn) { netIn.Int("value", value); });
     if (array == nullptr) {
         APS5_INVALID_ARG_EX;
     }
     array->Add(value);
-    return SCE_NP_UNIVERSAL_DATA_SYSTEM_OK;
+    return netCall.Ret(SCE_NP_UNIVERSAL_DATA_SYSTEM_OK);
 }
 
 int APS5_VABI sceNpUniversalDataSystemEventPropertyArraySetUInt32(
     NpUniversalDataSystemEventPropertyArray* array, uint32_t value)
 {
+    NetBridgeCall netCall("libSceNpUniversalDataSystem", __func__, [&](NetBridgeJson& netIn) { netIn.Uint("value", value); });
     if (array == nullptr) {
         APS5_INVALID_ARG_EX;
     }
     array->Add(value);
-    return SCE_NP_UNIVERSAL_DATA_SYSTEM_OK;
+    return netCall.Ret(SCE_NP_UNIVERSAL_DATA_SYSTEM_OK);
 }
 
 int APS5_VABI sceNpUniversalDataSystemEventPropertyArraySetInt64(
     NpUniversalDataSystemEventPropertyArray* array, int64_t value)
 {
+    NetBridgeCall netCall("libSceNpUniversalDataSystem", __func__, [&](NetBridgeJson& netIn) { netIn.Int("value", value); });
     if (array == nullptr) {
         APS5_INVALID_ARG_EX;
     }
     array->Add(value);
-    return SCE_NP_UNIVERSAL_DATA_SYSTEM_OK;
+    return netCall.Ret(SCE_NP_UNIVERSAL_DATA_SYSTEM_OK);
 }
 
 int APS5_VABI sceNpUniversalDataSystemEventPropertyArraySetUInt64(
     NpUniversalDataSystemEventPropertyArray* array, uint64_t value)
 {
+    NetBridgeCall netCall("libSceNpUniversalDataSystem", __func__, [&](NetBridgeJson& netIn) { netIn.Uint("value", value); });
     if (array == nullptr) {
         APS5_INVALID_ARG_EX;
     }
     array->Add(value);
-    return SCE_NP_UNIVERSAL_DATA_SYSTEM_OK;
+    return netCall.Ret(SCE_NP_UNIVERSAL_DATA_SYSTEM_OK);
 }
 
 int APS5_VABI sceNpUniversalDataSystemEventPropertyArraySetFloat32(
     NpUniversalDataSystemEventPropertyArray* array, float value)
 {
+    NetBridgeCall netCall("libSceNpUniversalDataSystem", __func__);
     if (array == nullptr) {
         APS5_INVALID_ARG_EX;
     }
     array->Add(value);
-    return SCE_NP_UNIVERSAL_DATA_SYSTEM_OK;
+    return netCall.Ret(SCE_NP_UNIVERSAL_DATA_SYSTEM_OK);
 }
 
 int APS5_VABI sceNpUniversalDataSystemEventPropertyArraySetFloat64(
 NpUniversalDataSystemEventPropertyArray* array, double value)
 {
+    NetBridgeCall netCall("libSceNpUniversalDataSystem", __func__);
     if (array == nullptr) {
         APS5_INVALID_ARG_EX;
     }
     array->Add(value);
-    return SCE_NP_UNIVERSAL_DATA_SYSTEM_OK;
+    return netCall.Ret(SCE_NP_UNIVERSAL_DATA_SYSTEM_OK);
 }
 
 int APS5_VABI sceNpUniversalDataSystemEventPropertyArraySetBool(
     NpUniversalDataSystemEventPropertyArray* array, bool value)
 {
+    NetBridgeCall netCall("libSceNpUniversalDataSystem", __func__, [&](NetBridgeJson& netIn) { netIn.Bool("value", value); });
     if (array == nullptr) {
         APS5_INVALID_ARG_EX;
     }
     array->Add(value);
-    return SCE_NP_UNIVERSAL_DATA_SYSTEM_OK;
+    return netCall.Ret(SCE_NP_UNIVERSAL_DATA_SYSTEM_OK);
 }
 
 int APS5_VABI sceNpUniversalDataSystemEventPropertyArraySetBinary(
     NpUniversalDataSystemEventPropertyArray* array, const void* value, size_t value_size)
 {
+    NetBridgeCall netCall("libSceNpUniversalDataSystem", __func__, [&](NetBridgeJson& netIn) { netIn.Uint("value_size", value_size); });
     if (array == nullptr || value == nullptr) {
         APS5_INVALID_ARG_EX;
     }
     const auto* bytes = static_cast<const std::uint8_t*>(value);
     array->Add(Uds::Binary(bytes, bytes + value_size));
-    return SCE_NP_UNIVERSAL_DATA_SYSTEM_OK;
+    return netCall.Ret(SCE_NP_UNIVERSAL_DATA_SYSTEM_OK);
 }
 
 int APS5_VABI sceNpUniversalDataSystemEventPropertyArraySetObject(
@@ -127,6 +139,7 @@ int APS5_VABI sceNpUniversalDataSystemEventPropertyArraySetObject(
     const NpUniversalDataSystemEventPropertyObject* value,
     NpUniversalDataSystemEventPropertyObject** value_ptr)
 {
+    NetBridgeCall netCall("libSceNpUniversalDataSystem", __func__);
     if (array == nullptr) {
         APS5_INVALID_ARG_EX;
     }
@@ -135,7 +148,7 @@ int APS5_VABI sceNpUniversalDataSystemEventPropertyArraySetObject(
         *value_ptr = child.get();
     }
     array->Add(std::move(child));
-    return SCE_NP_UNIVERSAL_DATA_SYSTEM_OK;
+    return netCall.Ret(SCE_NP_UNIVERSAL_DATA_SYSTEM_OK);
 }
 
 int APS5_VABI sceNpUniversalDataSystemEventPropertyArraySetArray(
@@ -143,6 +156,7 @@ int APS5_VABI sceNpUniversalDataSystemEventPropertyArraySetArray(
     const NpUniversalDataSystemEventPropertyArray* value,
     NpUniversalDataSystemEventPropertyArray** value_ptr)
 {
+    NetBridgeCall netCall("libSceNpUniversalDataSystem", __func__);
     if (array == nullptr) {
         APS5_INVALID_ARG_EX;
     }
@@ -151,7 +165,7 @@ int APS5_VABI sceNpUniversalDataSystemEventPropertyArraySetArray(
         *value_ptr = child.get();
     }
     array->Add(std::move(child));
-    return SCE_NP_UNIVERSAL_DATA_SYSTEM_OK;
+    return netCall.Ret(SCE_NP_UNIVERSAL_DATA_SYSTEM_OK);
 }
 
 }

@@ -147,7 +147,7 @@ file(GLOB LIBS_DIRS LIST_DIRECTORIES true ${CMAKE_CURRENT_SOURCE_DIR}/prx/*)
 list(REMOVE_ITEM LIBS_DIRS ${LIBC_DIR})
 
 set(PATCHED_OUTPUTS ${LIBC_PATCHED})
-set(NET_OBSERVED_LIBS libSceNpAuth libSceNpWebApi libSceNpCppWebApi libSceNpSessionSignaling libSceNpSignaling libSceNpGameIntent libSceNpMatching2)
+set(NET_OBSERVED_LIBS libSceNpAuth libSceNpWebApi libSceNpCppWebApi libSceNpSessionSignaling libSceNpSignaling libSceNpGameIntent libSceNpMatching2 libSceNpEntitlementAccess libSceNpUniversalDataSystem libSceNpCommerce libSceHttp libSceHttp2 libSceSsl)
 
 foreach(LIB_DIR ${LIBS_DIRS})
     if(IS_DIRECTORY ${LIB_DIR})

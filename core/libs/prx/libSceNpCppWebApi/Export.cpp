@@ -49,7 +49,7 @@ void* APS5_VABI _ZN3sce2Np9CppWebApi12Leaderboards2V122GetRankingResponseBody10g
     NetBridgeCall netCall("libSceNpCppWebApi", __func__);
     (void)self;
     NotImplemented_nid_no_patch(__func__);
-    return netCall.Ret(nullptr);
+    return nullptr;
 }
 
 int APS5_VABI _ZN3sce2Np9CppWebApi12Leaderboards2V122RecordScoreRequestBody10setCommentEPKc() {
@@ -606,21 +606,21 @@ void* APS5_VABI _ZN3sce2Np9CppWebApi6Common6VectorINS2_12IntrusivePtrINS1_12Lead
     NetBridgeCall netCall("libSceNpCppWebApi", __func__);
     (void)self;
     NotImplemented_nid_no_patch(__func__);
-    return netCall.Ret(nullptr);
+    return nullptr;
 }
 
 void* APS5_VABI _ZN3sce2Np9CppWebApi6Common6VectorINS2_12IntrusivePtrINS1_12Leaderboards2V15EntryEEEE5beginEv(void* self) {
     NetBridgeCall netCall("libSceNpCppWebApi", __func__);
     (void)self;
     NotImplemented_nid_no_patch(__func__);
-    return netCall.Ret(nullptr);
+    return nullptr;
 }
 
 void* APS5_VABI _ZN3sce2Np9CppWebApi6Common8IteratorINS2_12IntrusivePtrINS1_12Leaderboards2V15EntryEEEEppEv(void* self) {
     NetBridgeCall netCall("libSceNpCppWebApi", __func__);
     (void)self;
     NotImplemented_nid_no_patch(__func__);
-    return netCall.Ret(nullptr);
+    return nullptr;
 }
 
 int APS5_VABI _ZN3sce2Np9CppWebApi6Common9terminateERNS2_10LibContextE(uint64_t* context) {
@@ -633,7 +633,7 @@ const void* APS5_VABI _ZNK3sce2Np9CppWebApi12Leaderboards2V122GetRankingResponse
     NetBridgeCall netCall("libSceNpCppWebApi", __func__);
     (void)self;
     NotImplemented_nid_no_patch(__func__);
-    return netCall.Ret(nullptr);
+    return nullptr;
 }
 
 int APS5_VABI _ZNK3sce2Np9CppWebApi12Leaderboards2V123RecordScoreResponseBody10getTmpRankEv(const void* self) {
@@ -752,21 +752,21 @@ const char* APS5_VABI _ZNK3sce2Np9CppWebApi12Leaderboards2V15Entry10getCommentEv
     NetBridgeCall netCall("libSceNpCppWebApi", __func__);
     (void)self;
     NotImplemented_nid_no_patch(__func__);
-    return netCall.Ret(nullptr);
+    return nullptr;
 }
 
 const char* APS5_VABI _ZNK3sce2Np9CppWebApi12Leaderboards2V15Entry11getObjectIdEv(const void* self) {
     NetBridgeCall netCall("libSceNpCppWebApi", __func__);
     (void)self;
     NotImplemented_nid_no_patch(__func__);
-    return netCall.Ret(nullptr);
+    return nullptr;
 }
 
 const char* APS5_VABI _ZNK3sce2Np9CppWebApi12Leaderboards2V15Entry11getOnlineIdEv(const void* self) {
     NetBridgeCall netCall("libSceNpCppWebApi", __func__);
     (void)self;
     NotImplemented_nid_no_patch(__func__);
-    return netCall.Ret(nullptr);
+    return nullptr;
 }
 
 bool APS5_VABI _ZNK3sce2Np9CppWebApi12Leaderboards2V15Entry12commentIsSetEv(const void* self) {
@@ -787,7 +787,7 @@ const void* APS5_VABI _ZNK3sce2Np9CppWebApi12Leaderboards2V15Entry12getSmallData
     NetBridgeCall netCall("libSceNpCppWebApi", __func__);
     (void)self;
     NotImplemented_nid_no_patch(__func__);
-    return netCall.Ret(nullptr);
+    return nullptr;
 }
 
 std::uint32_t APS5_VABI _ZNK3sce2Np9CppWebApi12Leaderboards2V15Entry13getSerialRankEv(const void* self) {
@@ -850,7 +850,7 @@ const char* APS5_VABI _ZNK3sce2Np9CppWebApi12Leaderboards2V19RecordApi26RecordSc
     NetBridgeCall netCall("libSceNpCppWebApi", __func__);
     (void)self;
     NotImplemented_nid_no_patch(__func__);
-    return netCall.Ret(nullptr);
+    return nullptr;
 }
 
 int APS5_VABI _ZNK3sce2Np9CppWebApi6Common11TransactionINS2_12IntrusivePtrINS1_12Leaderboards2V122GetRankingResponseBodyEEENS4_INS2_18ResponseHeaderBaseEEEE11getResponseERS8_() {
@@ -870,52 +870,52 @@ int APS5_VABI _ZNK3sce2Np9CppWebApi6Common11TransactionINS2_12IntrusivePtrINS1_1
 
 void* APS5_VABI _ZNK3sce2Np9CppWebApi6Common12IntrusivePtrINS1_12Leaderboards2V121GetRankingRequestBodyEEptEv(const IntrusivePtr* self) {
     NetBridgeCall netCall("libSceNpCppWebApi", __func__);
-    return netCall.Ret(self->object);
+    return self->object;
 }
 
 void* APS5_VABI _ZNK3sce2Np9CppWebApi6Common12IntrusivePtrINS1_12Leaderboards2V122GetRankingResponseBodyEEptEv(const IntrusivePtr* self) {
     NetBridgeCall netCall("libSceNpCppWebApi", __func__);
-    return netCall.Ret(self->object);
+    return self->object;
 }
 
 void* APS5_VABI _ZNK3sce2Np9CppWebApi6Common12IntrusivePtrINS1_12Leaderboards2V122RecordScoreRequestBodyEEptEv(const IntrusivePtr* self) {
     NetBridgeCall netCall("libSceNpCppWebApi", __func__);
-    return netCall.Ret(self->object);
+    return self->object;
 }
 
 void* APS5_VABI _ZNK3sce2Np9CppWebApi6Common12IntrusivePtrINS1_12Leaderboards2V123RecordScoreResponseBodyEEptEv(const IntrusivePtr* self) {
     NetBridgeCall netCall("libSceNpCppWebApi", __func__);
-    return netCall.Ret(self->object);
+    return self->object;
 }
 
 void* APS5_VABI _ZNK3sce2Np9CppWebApi6Common12IntrusivePtrINS1_12Leaderboards2V130GetBoardDefinitionResponseBodyEEptEv(const IntrusivePtr* self) {
     NetBridgeCall netCall("libSceNpCppWebApi", __func__);
-    return netCall.Ret(self->object);
+    return self->object;
 }
 
 void* APS5_VABI _ZNK3sce2Np9CppWebApi6Common12IntrusivePtrINS1_12Leaderboards2V14UserEEptEv(const IntrusivePtr* self) {
     NetBridgeCall netCall("libSceNpCppWebApi", __func__);
-    return netCall.Ret(self->object);
+    return self->object;
 }
 
 void* APS5_VABI _ZNK3sce2Np9CppWebApi6Common12IntrusivePtrINS1_12Leaderboards2V15EntryEEptEv(const IntrusivePtr* self) {
     NetBridgeCall netCall("libSceNpCppWebApi", __func__);
-    return netCall.Ret(self->object);
+    return self->object;
 }
 
 void* APS5_VABI _ZNK3sce2Np9CppWebApi6Common12IntrusivePtrINS1_12Leaderboards2V19RecordApi26RecordScoreResponseHeadersEEptEv(const IntrusivePtr* self) {
     NetBridgeCall netCall("libSceNpCppWebApi", __func__);
-    return netCall.Ret(self->object);
+    return self->object;
 }
 
 void* APS5_VABI _ZNK3sce2Np9CppWebApi6Common12IntrusivePtrINS2_6BinaryEEptEv(const IntrusivePtr* self) {
     NetBridgeCall netCall("libSceNpCppWebApi", __func__);
-    return netCall.Ret(self->object);
+    return self->object;
 }
 
 void* APS5_VABI _ZNK3sce2Np9CppWebApi6Common12IntrusivePtrINS2_6VectorINS3_INS1_12Leaderboards2V15EntryEEEEEEdeEv(const IntrusivePtr* self) {
     NetBridgeCall netCall("libSceNpCppWebApi", __func__);
-    return netCall.Ret(self->object);
+    return self->object;
 }
 
 int APS5_VABI _ZNK3sce2Np9CppWebApi6Common15TransactionBaseINS2_12IntrusivePtrINS1_12Leaderboards2V123RecordScoreResponseBodyEEENS4_INS6_9RecordApi26RecordScoreResponseHeadersEEEE18getResponseHeadersERSB_() {
@@ -934,19 +934,19 @@ const void* APS5_VABI _ZNK3sce2Np9CppWebApi6Common6Binary9getBinaryEv(const void
     NetBridgeCall netCall("libSceNpCppWebApi", __func__);
     (void)self;
     NotImplemented_nid_no_patch(__func__);
-    return netCall.Ret(nullptr);
+    return nullptr;
 }
 
 const char* APS5_VABI _ZNK3sce2Np9CppWebApi6Common6String5c_strEv(const CommonString* self) {
     NetBridgeCall netCall("libSceNpCppWebApi", __func__);
-    return netCall.Ret(self->buffer != nullptr ? self->buffer : "");
+    return self->buffer != nullptr ? self->buffer : "";
 }
 
 void* APS5_VABI _ZNK3sce2Np9CppWebApi6Common8IteratorINS2_12IntrusivePtrINS1_12Leaderboards2V15EntryEEEEdeEv(const void* self) {
     NetBridgeCall netCall("libSceNpCppWebApi", __func__);
     (void)self;
     NotImplemented_nid_no_patch(__func__);
-    return netCall.Ret(nullptr);
+    return nullptr;
 }
 
 bool APS5_VABI _ZNK3sce2Np9CppWebApi6Common8IteratorINS2_12IntrusivePtrINS1_12Leaderboards2V15EntryEEEEneERKS9_(const void* self, const void* other) {
@@ -1063,7 +1063,7 @@ void APS5_VABI _ZN3sce2Np9CppWebApi6Common12IntrusivePtrINS1_14SessionManager2V1
 
 void* APS5_VABI _ZNK3sce2Np9CppWebApi6Common12IntrusivePtrINS1_14SessionManager2V120RequestPlayerSessionEEptEv(const IntrusivePtr* self) {
     NetBridgeCall netCall("libSceNpCppWebApi", __func__);
-    return netCall.Ret(self->object);
+    return self->object;
 }
 
 int APS5_VABI _ZN3sce2Np9CppWebApi14SessionManager2V120RequestPlayerSession16setMaxSpectatorsERKi() {
@@ -1080,7 +1080,7 @@ void* APS5_VABI _ZN3sce2Np9CppWebApi6Common6VectorINS2_12IntrusivePtrINS1_14Sess
     NetBridgeCall netCall("libSceNpCppWebApi", __func__);
     (void)self;
     NotImplemented_nid_no_patch(__func__);
-    return netCall.Ret(nullptr);
+    return nullptr;
 }
 
 int APS5_VABI _ZN3sce2Np9CppWebApi14SessionManager2V117PlayerSessionsApi36ParameterToJoinPlayerSessionAsPlayerD1Ev() {
@@ -1092,7 +1092,7 @@ const char* APS5_VABI _ZNK3sce2Np9CppWebApi14SessionManager2V110FromMember11getO
     NetBridgeCall netCall("libSceNpCppWebApi", __func__);
     (void)self;
     NotImplemented_nid_no_patch(__func__);
-    return netCall.Ret(nullptr);
+    return nullptr;
 }
 
 int APS5_VABI _ZN3sce2Np9CppWebApi14SessionManager2V117PlayerSessionsApi38ParameterToGetPlayerSessionInvitations26setinvitationInvalidFilterEPKc() {
@@ -1112,7 +1112,7 @@ int APS5_VABI _ZNK3sce2Np9CppWebApi6Common11TransactionINS2_12IntrusivePtrINS1_1
 
 void* APS5_VABI _ZNK3sce2Np9CppWebApi6Common12IntrusivePtrINS1_14SessionManager2V126RequestPlayerSessionPlayerEEptEv(const IntrusivePtr* self) {
     NetBridgeCall netCall("libSceNpCppWebApi", __func__);
-    return netCall.Ret(self->object);
+    return self->object;
 }
 
 void APS5_VABI _ZN3sce2Np9CppWebApi6Common12IntrusivePtrINS1_14SessionManager2V151PostPlayerSessionsSessionIdMemberPlayersRequestBodyEEC1Ev(IntrusivePtr* self) {
@@ -1148,7 +1148,7 @@ int APS5_VABI _ZN3sce2Np9CppWebApi6Common13ConstIteratorINS2_12IntrusivePtrINS1_
 
 void* APS5_VABI _ZNK3sce2Np9CppWebApi6Common12IntrusivePtrINS1_14SessionManager2V113PlayerSessionEEptEv(const IntrusivePtr* self) {
     NetBridgeCall netCall("libSceNpCppWebApi", __func__);
-    return netCall.Ret(self->object);
+    return self->object;
 }
 
 int APS5_VABI _ZN3sce2Np9CppWebApi14SessionManager2V120RequestPlayerSession20setInvitableUserTypeERKNS3_17InvitableUserTypeE() {
@@ -1194,7 +1194,7 @@ void* APS5_VABI _ZN3sce2Np9CppWebApi6Common6VectorINS2_12IntrusivePtrINS1_14Sess
     NetBridgeCall netCall("libSceNpCppWebApi", __func__);
     (void)self;
     NotImplemented_nid_no_patch(__func__);
-    return netCall.Ret(nullptr);
+    return nullptr;
 }
 
 void APS5_VABI _ZN3sce2Np9CppWebApi6Common12IntrusivePtrINS1_14SessionManager2V129PostPlayerSessionsRequestBodyEEC1Ev(IntrusivePtr* self) {
@@ -1209,7 +1209,7 @@ void APS5_VABI _ZN3sce2Np9CppWebApi6Common12IntrusivePtrINS2_6VectorINS3_INS1_14
 
 void* APS5_VABI _ZNK3sce2Np9CppWebApi6Common12IntrusivePtrINS2_6VectorINS3_INS1_14SessionManager2V136UsersPlayerSessionsInvitationForReadEEEEEEdeEv(const IntrusivePtr* self) {
     NetBridgeCall netCall("libSceNpCppWebApi", __func__);
-    return netCall.Ret(self->object);
+    return self->object;
 }
 
 int APS5_VABI _ZN3sce2Np9CppWebApi6Common11TransactionINS2_15DefaultResponseENS2_12IntrusivePtrINS2_18ResponseHeaderBaseEEEEC1Ev(void* self) {
@@ -1287,7 +1287,7 @@ int APS5_VABI _ZN3sce2Np9CppWebApi14SessionManager2V117PlayerSessionsApi31Parame
 
 void* APS5_VABI _ZNK3sce2Np9CppWebApi6Common12IntrusivePtrINS1_14SessionManager2V110FromMemberEEptEv(const IntrusivePtr* self) {
     NetBridgeCall netCall("libSceNpCppWebApi", __func__);
-    return netCall.Ret(self->object);
+    return self->object;
 }
 
 void APS5_VABI _ZN3sce2Np9CppWebApi6Common12IntrusivePtrINS1_14SessionManager2V132RequestPlayerSessionMemberPlayerEED1Ev(IntrusivePtr* self) {
@@ -1325,14 +1325,14 @@ const char* APS5_VABI _ZNK3sce2Np9CppWebApi14SessionManager2V136UsersPlayerSessi
     NetBridgeCall netCall("libSceNpCppWebApi", __func__);
     (void)self;
     NotImplemented_nid_no_patch(__func__);
-    return netCall.Ret(nullptr);
+    return nullptr;
 }
 
 void* APS5_VABI _ZNK3sce2Np9CppWebApi14SessionManager2V136UsersPlayerSessionsInvitationForRead7getFromEv(const void* self) {
     NetBridgeCall netCall("libSceNpCppWebApi", __func__);
     (void)self;
     NotImplemented_nid_no_patch(__func__);
-    return netCall.Ret(nullptr);
+    return nullptr;
 }
 
 void APS5_VABI _ZN3sce2Np9CppWebApi6Common12IntrusivePtrINS1_14SessionManager2V129PostPlayerSessionsRequestBodyEEC1ERS7_(IntrusivePtr* self, const IntrusivePtr* source) {
@@ -1344,7 +1344,7 @@ void* APS5_VABI _ZN3sce2Np9CppWebApi14SessionManager2V130PostPlayerSessionsRespo
     NetBridgeCall netCall("libSceNpCppWebApi", __func__);
     (void)self;
     NotImplemented_nid_no_patch(__func__);
-    return netCall.Ret(nullptr);
+    return nullptr;
 }
 
 int APS5_VABI _ZN3sce2Np9CppWebApi14SessionManager2V117PlayerSessionsApi18leavePlayerSessionEiRKNS4_29ParameterToLeavePlayerSessionERNS1_6Common11TransactionINS8_15DefaultResponseENS8_12IntrusivePtrINS8_18ResponseHeaderBaseEEEEE() {
@@ -1384,7 +1384,7 @@ void APS5_VABI _ZN3sce2Np9CppWebApi6Common12IntrusivePtrINS1_14SessionManager2V1
 
 void* APS5_VABI _ZNK3sce2Np9CppWebApi6Common12IntrusivePtrINS2_6VectorINS3_INS1_14SessionManager2V113PlayerSessionEEEEEEdeEv(const IntrusivePtr* self) {
     NetBridgeCall netCall("libSceNpCppWebApi", __func__);
-    return netCall.Ret(self->object);
+    return self->object;
 }
 
 void APS5_VABI _ZN3sce2Np9CppWebApi6Common12IntrusivePtrINS1_14SessionManager2V124PlayerSessionPushContextEEC1Ev(IntrusivePtr* self) {
@@ -1404,7 +1404,7 @@ void APS5_VABI _ZN3sce2Np9CppWebApi6Common12IntrusivePtrINS1_14SessionManager2V1
 
 void* APS5_VABI _ZNK3sce2Np9CppWebApi6Common12IntrusivePtrINS1_14SessionManager2V154GetUsersAccountIdPlayerSessionsInvitationsResponseBodyEEptEv(const IntrusivePtr* self) {
     NetBridgeCall netCall("libSceNpCppWebApi", __func__);
-    return netCall.Ret(self->object);
+    return self->object;
 }
 
 int APS5_VABI _ZN3sce2Np9CppWebApi14SessionManager2V117PlayerSessionsApi38ParameterToGetPlayerSessionInvitationsC1Ev() {
@@ -1421,7 +1421,7 @@ void* APS5_VABI _ZN3sce2Np9CppWebApi6Common8IteratorINS2_12IntrusivePtrINS1_14Se
     NetBridgeCall netCall("libSceNpCppWebApi", __func__);
     (void)self;
     NotImplemented_nid_no_patch(__func__);
-    return netCall.Ret(nullptr);
+    return nullptr;
 }
 
 int APS5_VABI _ZN3sce2Np9CppWebApi6Common11TransactionINS2_12IntrusivePtrINS1_14SessionManager2V152PostPlayerSessionsSessionIdMemberPlayersResponseBodyEEENS4_INS2_18ResponseHeaderBaseEEEEC1Ev(void* self) {
@@ -1501,7 +1501,7 @@ void* APS5_VABI _ZN3sce2Np9CppWebApi6Common6VectorINS2_12IntrusivePtrINS1_14Sess
     (void)self;
     (void)index;
     NotImplemented_nid_no_patch(__func__);
-    return netCall.Ret(nullptr);
+    return nullptr;
 }
 
 int APS5_VABI _ZN3sce2Np9CppWebApi14SessionManager2V117PlayerSessionsApi29ParameterToLeavePlayerSession10initializeEPNS1_6Common10LibContextEPKcSA_() {
@@ -1523,7 +1523,7 @@ void* APS5_VABI _ZNK3sce2Np9CppWebApi6Common8IteratorINS2_12IntrusivePtrINS1_14S
     NetBridgeCall netCall("libSceNpCppWebApi", __func__);
     (void)self;
     NotImplemented_nid_no_patch(__func__);
-    return netCall.Ret(nullptr);
+    return nullptr;
 }
 
 int APS5_VABI _ZN3sce2Np9CppWebApi14SessionManager2V117PlayerSessionsApi38ParameterToGetPlayerSessionInvitations9setfieldsENS1_6Common12IntrusivePtrINS6_6VectorINS6_6StringEEEEE() {
@@ -1635,7 +1635,7 @@ int APS5_VABI _ZN3sce2Np9CppWebApi14SessionManager2V117PlayerSessionsApi38Parame
 
 void* APS5_VABI _ZNK3sce2Np9CppWebApi6Common12IntrusivePtrINS1_14SessionManager2V130PostPlayerSessionsResponseBodyEEptEv(const IntrusivePtr* self) {
     NetBridgeCall netCall("libSceNpCppWebApi", __func__);
-    return netCall.Ret(self->object);
+    return self->object;
 }
 
 void APS5_VABI _ZN3sce2Np9CppWebApi6Common12IntrusivePtrINS1_14SessionManager2V154GetUsersAccountIdPlayerSessionsInvitationsResponseBodyEED1Ev(IntrusivePtr* self) {
@@ -1652,7 +1652,7 @@ void* APS5_VABI _ZN3sce2Np9CppWebApi14SessionManager2V154GetUsersAccountIdPlayer
     NetBridgeCall netCall("libSceNpCppWebApi", __func__);
     (void)self;
     NotImplemented_nid_no_patch(__func__);
-    return netCall.Ret(nullptr);
+    return nullptr;
 }
 
 void APS5_VABI _ZN3sce2Np9CppWebApi6Common12IntrusivePtrINS1_14SessionManager2V132RequestCreatePlayerSessionPlayerEEC1Ev(IntrusivePtr* self) {
@@ -1734,7 +1734,7 @@ void APS5_VABI _ZN3sce2Np9CppWebApi6Common6VectorINS2_12IntrusivePtrINS1_14Sessi
 
 void* APS5_VABI _ZNK3sce2Np9CppWebApi6Common12IntrusivePtrINS1_14SessionManager2V136UsersPlayerSessionsInvitationForReadEEptEv(const IntrusivePtr* self) {
     NetBridgeCall netCall("libSceNpCppWebApi", __func__);
-    return netCall.Ret(self->object);
+    return self->object;
 }
 
 void APS5_VABI _ZN3sce2Np9CppWebApi6Common12IntrusivePtrINS1_14SessionManager2V152PostPlayerSessionsSessionIdMemberPlayersResponseBodyEEC1Ev(IntrusivePtr* self) {
@@ -1746,7 +1746,7 @@ const char* APS5_VABI _ZNK3sce2Np9CppWebApi14SessionManager2V113PlayerSession12g
     NetBridgeCall netCall("libSceNpCppWebApi", __func__);
     (void)self;
     NotImplemented_nid_no_patch(__func__);
-    return netCall.Ret(nullptr);
+    return nullptr;
 }
 
 int APS5_VABI _ZN3sce2Np9CppWebApi14SessionManager2V158PostPlayerSessionsSessionIdMemberPlayersRequestBodyFactory6createEPNS1_6Common10LibContextERKNS5_6VectorINS5_12IntrusivePtrINS3_26RequestPlayerSessionPlayerEEEEEPNS9_INS3_51PostPlayerSessionsSessionIdMemberPlayersRequestBodyEEE() {
@@ -1931,14 +1931,14 @@ void* APS5_VABI _ZNK3sce2Np9CppWebApi6Common8IteratorINS2_12IntrusivePtrINS1_13I
     NetBridgeCall netCall("libSceNpCppWebApi", __func__);
     (void)self;
     NotImplemented_nid_no_patch(__func__);
-    return netCall.Ret(nullptr);
+    return nullptr;
 }
 
 void* APS5_VABI _ZN3sce2Np9CppWebApi6Common8IteratorINS2_12IntrusivePtrINS1_13InGameCatalog2V57ProductEEEEppEv(void* self) {
     NetBridgeCall netCall("libSceNpCppWebApi", __func__);
     (void)self;
     NotImplemented_nid_no_patch(__func__);
-    return netCall.Ret(nullptr);
+    return nullptr;
 }
 
 bool APS5_VABI _ZNK3sce2Np9CppWebApi6Common8IteratorINS2_12IntrusivePtrINS1_17TitleCloudStorage2V110DataStatusEEEEneERKS9_(const void* self, const void* other) {
@@ -1953,14 +1953,14 @@ void* APS5_VABI _ZNK3sce2Np9CppWebApi6Common8IteratorINS2_12IntrusivePtrINS1_17T
     NetBridgeCall netCall("libSceNpCppWebApi", __func__);
     (void)self;
     NotImplemented_nid_no_patch(__func__);
-    return netCall.Ret(nullptr);
+    return nullptr;
 }
 
 void* APS5_VABI _ZN3sce2Np9CppWebApi6Common8IteratorINS2_12IntrusivePtrINS1_17TitleCloudStorage2V110DataStatusEEEEppEv(void* self) {
     NetBridgeCall netCall("libSceNpCppWebApi", __func__);
     (void)self;
     NotImplemented_nid_no_patch(__func__);
-    return netCall.Ret(nullptr);
+    return nullptr;
 }
 
 void APS5_VABI _ZN3sce2Np9CppWebApi6Common11TransactionINS2_12IntrusivePtrINS2_6VectorINS4_INS1_13InGameCatalog2V59ContainerEEEEEEENS4_INS2_18ResponseHeaderBaseEEEEC1Ev(void* self) {
@@ -2038,7 +2038,7 @@ void* APS5_VABI _ZN3sce2Np9CppWebApi6Common6VectorINS2_12IntrusivePtrINS1_13InGa
     (void)self;
     (void)index;
     NotImplemented_nid_no_patch(__func__);
-    return netCall.Ret(nullptr);
+    return nullptr;
 }
 
 std::size_t APS5_VABI _ZNK3sce2Np9CppWebApi6Common6VectorINS2_12IntrusivePtrINS1_13InGameCatalog2V59ContainerEEEE4sizeEv(const void* self) {
@@ -2052,14 +2052,14 @@ void* APS5_VABI _ZN3sce2Np9CppWebApi6Common6VectorINS2_12IntrusivePtrINS1_13InGa
     NetBridgeCall netCall("libSceNpCppWebApi", __func__);
     (void)self;
     NotImplemented_nid_no_patch(__func__);
-    return netCall.Ret(nullptr);
+    return nullptr;
 }
 
 void* APS5_VABI _ZN3sce2Np9CppWebApi6Common6VectorINS2_12IntrusivePtrINS1_13InGameCatalog2V57ProductEEEE3endEv(void* self) {
     NetBridgeCall netCall("libSceNpCppWebApi", __func__);
     (void)self;
     NotImplemented_nid_no_patch(__func__);
-    return netCall.Ret(nullptr);
+    return nullptr;
 }
 
 std::size_t APS5_VABI _ZNK3sce2Np9CppWebApi6Common6VectorINS2_12IntrusivePtrINS1_13InGameCatalog2V53SkuEEEE4sizeEv(const void* self) {
@@ -2073,21 +2073,21 @@ void* APS5_VABI _ZN3sce2Np9CppWebApi6Common6VectorINS2_12IntrusivePtrINS1_17Titl
     NetBridgeCall netCall("libSceNpCppWebApi", __func__);
     (void)self;
     NotImplemented_nid_no_patch(__func__);
-    return netCall.Ret(nullptr);
+    return nullptr;
 }
 
 void* APS5_VABI _ZN3sce2Np9CppWebApi6Common6VectorINS2_12IntrusivePtrINS1_17TitleCloudStorage2V110DataStatusEEEE3endEv(void* self) {
     NetBridgeCall netCall("libSceNpCppWebApi", __func__);
     (void)self;
     NotImplemented_nid_no_patch(__func__);
-    return netCall.Ret(nullptr);
+    return nullptr;
 }
 
 void* APS5_VABI _ZN3sce2Np9CppWebApi13InGameCatalog2V59Container11getChildrenEv(void* self) {
     NetBridgeCall netCall("libSceNpCppWebApi", __func__);
     (void)self;
     NotImplemented_nid_no_patch(__func__);
-    return netCall.Ret(nullptr);
+    return nullptr;
 }
 
 int APS5_VABI _ZN3sce2Np9CppWebApi13InGameCatalog2V512ContainerApi23ParameterToGetContainerC1Ev(void) {
@@ -2134,14 +2134,14 @@ const char* APS5_VABI _ZNK3sce2Np9CppWebApi13InGameCatalog2V57Product8getLabelEv
     NetBridgeCall netCall("libSceNpCppWebApi", __func__);
     (void)self;
     NotImplemented_nid_no_patch(__func__);
-    return netCall.Ret(nullptr);
+    return nullptr;
 }
 
 void* APS5_VABI _ZN3sce2Np9CppWebApi13InGameCatalog2V57Product7getSkusEv(void* self) {
     NetBridgeCall netCall("libSceNpCppWebApi", __func__);
     (void)self;
     NotImplemented_nid_no_patch(__func__);
-    return netCall.Ret(nullptr);
+    return nullptr;
 }
 
 int APS5_VABI _ZNK3sce2Np9CppWebApi13InGameCatalog2V57Product7getTypeEv(const void* self) {
@@ -2211,14 +2211,14 @@ const char* APS5_VABI _ZNK3sce2Np9CppWebApi17TitleCloudStorage2V110DataStatus11g
     NetBridgeCall netCall("libSceNpCppWebApi", __func__);
     (void)self;
     NotImplemented_nid_no_patch(__func__);
-    return netCall.Ret(nullptr);
+    return nullptr;
 }
 
 void* APS5_VABI _ZNK3sce2Np9CppWebApi17TitleCloudStorage2V110DataStatus8getOwnerEv(const void* self) {
     NetBridgeCall netCall("libSceNpCppWebApi", __func__);
     (void)self;
     NotImplemented_nid_no_patch(__func__);
-    return netCall.Ret(nullptr);
+    return nullptr;
 }
 
 int APS5_VABI _ZNK3sce2Np9CppWebApi17TitleCloudStorage2V110DataStatus9getSlotIdEv(const void* self) {
@@ -2232,7 +2232,7 @@ void* APS5_VABI _ZN3sce2Np9CppWebApi17TitleCloudStorage2V132GetMultiDataStatuses
     NetBridgeCall netCall("libSceNpCppWebApi", __func__);
     (void)self;
     NotImplemented_nid_no_patch(__func__);
-    return netCall.Ret(nullptr);
+    return nullptr;
 }
 
 std::uint32_t APS5_VABI _ZNK3sce2Np9CppWebApi17TitleCloudStorage2V132GetMultiDataStatusesResponseBody23getTotalDataStatusCountEv(const void* self) {
@@ -2851,7 +2851,7 @@ int APS5_VABI _ZNK3sce2Np9CppWebApi6Common8IteratorINS2_12IntrusivePtrINS1_14Ses
 
 void* APS5_VABI _ZNK3sce2Np9CppWebApi6Common12IntrusivePtrINS1_14SessionManager2V118LeaderWithOnlineIdEEptEv(const IntrusivePtr* self) {
     NetBridgeCall netCall("libSceNpCppWebApi", __func__);
-    return netCall.Ret(self->object);
+    return self->object;
 }
 
 void APS5_VABI _ZN3sce2Np9CppWebApi6Common6VectorINS2_12IntrusivePtrINS1_14SessionManager2V112JoinableUserEEEED1Ev(IntrusivePtr* self) {
@@ -2945,7 +2945,7 @@ void APS5_VABI _ZN3sce2Np9CppWebApi6Common12IntrusivePtrINS1_14SessionManager2V1
 
 void* APS5_VABI _ZNK3sce2Np9CppWebApi6Common12IntrusivePtrINS1_14SessionManager2V129GetPlayerSessionsResponseBodyEEptEv(const IntrusivePtr* self) {
     NetBridgeCall netCall("libSceNpCppWebApi", __func__);
-    return netCall.Ret(self->object);
+    return self->object;
 }
 
 void APS5_VABI _ZN3sce2Np9CppWebApi6Common12IntrusivePtrINS1_14SessionManager2V160PostPlayerSessionsSessionIdJoinableSpecifiedUsersRequestBodyEEC1ERS7_(IntrusivePtr* self, const IntrusivePtr* source) {
@@ -2955,7 +2955,7 @@ void APS5_VABI _ZN3sce2Np9CppWebApi6Common12IntrusivePtrINS1_14SessionManager2V1
 
 void* APS5_VABI _ZNK3sce2Np9CppWebApi6Common12IntrusivePtrINS2_6VectorINS3_INS1_14SessionManager2V120PlayerSessionForReadEEEEEEptEv(const IntrusivePtr* self) {
     NetBridgeCall netCall("libSceNpCppWebApi", __func__);
-    return netCall.Ret(self->object);
+    return self->object;
 }
 
 int APS5_VABI _ZN3sce2Np9CppWebApi6Common11TransactionINS2_12IntrusivePtrINS1_14SessionManager2V161PostPlayerSessionsSessionIdJoinableSpecifiedUsersResponseBodyEEENS4_INS2_18ResponseHeaderBaseEEEEC1Ev(void* self) {
@@ -3119,72 +3119,72 @@ int APS5_VABI _ZNK3sce2Np9CppWebApi30CommunicationRestrictionStatus2V338Communic
 
 void* APS5_VABI _ZNK3sce2Np9CppWebApi6Common12IntrusivePtrINS1_11UserProfile2V113BasicPresenceEEptEv(const IntrusivePtr* self) {
     NetBridgeCall netCall("libSceNpCppWebApi", __func__);
-    return netCall.Ret(self->object);
+    return self->object;
 }
 
 void* APS5_VABI _ZNK3sce2Np9CppWebApi6Common12IntrusivePtrINS1_11UserProfile2V118GetFriendsResponseEEptEv(const IntrusivePtr* self) {
     NetBridgeCall netCall("libSceNpCppWebApi", __func__);
-    return netCall.Ret(self->object);
+    return self->object;
 }
 
 void* APS5_VABI _ZNK3sce2Np9CppWebApi6Common12IntrusivePtrINS1_11UserProfile2V124GetBlockingUsersResponseEEptEv(const IntrusivePtr* self) {
     NetBridgeCall netCall("libSceNpCppWebApi", __func__);
-    return netCall.Ret(self->object);
+    return self->object;
 }
 
 void* APS5_VABI _ZNK3sce2Np9CppWebApi6Common12IntrusivePtrINS1_11UserProfile2V125GetBasicPresencesResponseEEptEv(const IntrusivePtr* self) {
     NetBridgeCall netCall("libSceNpCppWebApi", __func__);
-    return netCall.Ret(self->object);
+    return self->object;
 }
 
 void* APS5_VABI _ZNK3sce2Np9CppWebApi6Common12IntrusivePtrINS1_15ProfanityFilter2V223FilterProfanityResponseEEptEv(const IntrusivePtr* self) {
     NetBridgeCall netCall("libSceNpCppWebApi", __func__);
-    return netCall.Ret(self->object);
+    return self->object;
 }
 
 void* APS5_VABI _ZNK3sce2Np9CppWebApi6Common12IntrusivePtrINS1_30CommunicationRestrictionStatus2V338CommunicationRestrictionStatusResponseEEptEv(const IntrusivePtr* self) {
     NetBridgeCall netCall("libSceNpCppWebApi", __func__);
-    return netCall.Ret(self->object);
+    return self->object;
 }
 
 void* APS5_VABI _ZNK3sce2Np9CppWebApi6Common12IntrusivePtrINS2_18ResponseHeaderBaseEE3getEv(const IntrusivePtr* self) {
     NetBridgeCall netCall("libSceNpCppWebApi", __func__);
-    return netCall.Ret(self->object);
+    return self->object;
 }
 
 void* APS5_VABI _ZNK3sce2Np9CppWebApi6Common12IntrusivePtrINS2_18ResponseHeaderBaseEEptEv(const IntrusivePtr* self) {
     NetBridgeCall netCall("libSceNpCppWebApi", __func__);
-    return netCall.Ret(self->object);
+    return self->object;
 }
 
 void* APS5_VABI _ZNK3sce2Np9CppWebApi6Common12IntrusivePtrINS2_6StringEE3getEv(const IntrusivePtr* self) {
     NetBridgeCall netCall("libSceNpCppWebApi", __func__);
-    return netCall.Ret(self->object);
+    return self->object;
 }
 
 void* APS5_VABI _ZNK3sce2Np9CppWebApi6Common12IntrusivePtrINS2_6StringEEptEv(const IntrusivePtr* self) {
     NetBridgeCall netCall("libSceNpCppWebApi", __func__);
-    return netCall.Ret(self->object);
+    return self->object;
 }
 
 void* APS5_VABI _ZNK3sce2Np9CppWebApi6Common12IntrusivePtrINS2_6VectorINS3_INS1_11UserProfile2V113BasicPresenceEEEEEEdeEv(const IntrusivePtr* self) {
     NetBridgeCall netCall("libSceNpCppWebApi", __func__);
-    return netCall.Ret(self->object);
+    return self->object;
 }
 
 void* APS5_VABI _ZNK3sce2Np9CppWebApi6Common12IntrusivePtrINS2_6VectorINS3_INS1_11UserProfile2V113BasicPresenceEEEEEEptEv(const IntrusivePtr* self) {
     NetBridgeCall netCall("libSceNpCppWebApi", __func__);
-    return netCall.Ret(self->object);
+    return self->object;
 }
 
 void* APS5_VABI _ZNK3sce2Np9CppWebApi6Common12IntrusivePtrINS2_6VectorImEEEdeEv(const IntrusivePtr* self) {
     NetBridgeCall netCall("libSceNpCppWebApi", __func__);
-    return netCall.Ret(self->object);
+    return self->object;
 }
 
 void* APS5_VABI _ZNK3sce2Np9CppWebApi6Common12IntrusivePtrINS2_6VectorImEEEptEv(const IntrusivePtr* self) {
     NetBridgeCall netCall("libSceNpCppWebApi", __func__);
-    return netCall.Ret(self->object);
+    return self->object;
 }
 
 int APS5_VABI _ZNK3sce2Np9CppWebApi6Common15TransactionBaseINS2_12IntrusivePtrINS1_11UserProfile2V118GetFriendsResponseEEENS4_INS2_18ResponseHeaderBaseEEEE18getResponseHeadersERSA_() {
@@ -3251,7 +3251,7 @@ void APS5_VABI _ZN3sce2Np9CppWebApi6Common12IntrusivePtrINS1_14SessionManager2V1
 
 void* APS5_VABI _ZNK3sce2Np9CppWebApi6Common12IntrusivePtrINS1_14SessionManager2V127ResponsePlayerSessionPlayerEEptEv(const IntrusivePtr* self) {
     NetBridgeCall netCall("libSceNpCppWebApi", __func__);
-    return netCall.Ret(self->object);
+    return self->object;
 }
 
 int APS5_VABI _ZN3sce2Np9CppWebApi6Common11TransactionINS2_12IntrusivePtrINS1_14SessionManager2V150PostPlayerSessionsSessionIdInvitationsResponseBodyEEENS4_INS2_18ResponseHeaderBaseEEEEC1Ev(void* self) {
@@ -3283,17 +3283,17 @@ void APS5_VABI _ZN3sce2Np9CppWebApi6Common12IntrusivePtrINS1_14SessionManager2V1
 
 void* APS5_VABI _ZNK3sce2Np9CppWebApi6Common12IntrusivePtrINS2_6VectorINS3_INS1_14SessionManager2V113PlayerSessionEEEEEE3getEv(const IntrusivePtr* self) {
     NetBridgeCall netCall("libSceNpCppWebApi", __func__);
-    return netCall.Ret(self->object);
+    return self->object;
 }
 
 void* APS5_VABI _ZNK3sce2Np9CppWebApi6Common12IntrusivePtrINS1_14SessionManager2V149PostPlayerSessionsSessionIdInvitationsRequestBodyEEptEv(const IntrusivePtr* self) {
     NetBridgeCall netCall("libSceNpCppWebApi", __func__);
-    return netCall.Ret(self->object);
+    return self->object;
 }
 
 void* APS5_VABI _ZNK3sce2Np9CppWebApi6Common12IntrusivePtrINS2_6VectorINS3_INS1_14SessionManager2V127ResponsePlayerSessionPlayerEEEEEE3getEv(const IntrusivePtr* self) {
     NetBridgeCall netCall("libSceNpCppWebApi", __func__);
-    return netCall.Ret(self->object);
+    return self->object;
 }
 
 void APS5_VABI _ZN3sce2Np9CppWebApi6Common6VectorINS2_12IntrusivePtrINS1_14SessionManager2V112JoinableUserEEEEC1EPNS2_10LibContextE(IntrusivePtr* self, void* libContext) {
@@ -3369,9 +3369,9 @@ void* APS5_VABI _ZN3sce2Np9CppWebApi6Common6VectorINS2_12IntrusivePtrINS1_14Sess
     auto* body = static_cast<VectorBody*>(self->object);
     if (body == nullptr || body->magic != VectorBodyMagic || body->elementKind != 1) {
         NotImplemented_nid_no_patch(__func__);
-        return netCall.Ret(nullptr);
+        return nullptr;
     }
-    return netCall.Ret(static_cast<IntrusivePtr*>(body->elements) + index);
+    return static_cast<IntrusivePtr*>(body->elements) + index;
 }
 
 void APS5_VABI _ZN3sce2Np9CppWebApi6Common6VectorINS2_12IntrusivePtrINS1_14SessionManager2V127ResponsePlayerSessionPlayerEEEED1Ev(IntrusivePtr* self) {
@@ -3416,7 +3416,7 @@ int APS5_VABI _ZNK3sce2Np9CppWebApi6Common8IteratorINS2_12IntrusivePtrINS1_11Use
 
 void* APS5_VABI _ZNK3sce2Np9CppWebApi6Common12IntrusivePtrINS1_14SessionManager2V139PatchPlayerSessionsSessionIdRequestBodyEEptEv(const IntrusivePtr* self) {
     NetBridgeCall netCall("libSceNpCppWebApi", __func__);
-    return netCall.Ret(self->object);
+    return self->object;
 }
 
 void APS5_VABI _ZN3sce2Np9CppWebApi6Common12IntrusivePtrINS1_14SessionManager2V113PlayerSessionEED1Ev(IntrusivePtr* self) {
@@ -3431,7 +3431,7 @@ void APS5_VABI _ZN3sce2Np9CppWebApi6Common12IntrusivePtrINS1_14SessionManager2V1
 
 void* APS5_VABI _ZNK3sce2Np9CppWebApi6Common12IntrusivePtrINS1_14SessionManager2V113PlayerSessionEE3getEv(const IntrusivePtr* self) {
     NetBridgeCall netCall("libSceNpCppWebApi", __func__);
-    return netCall.Ret(self->object);
+    return self->object;
 }
 
 int APS5_VABI _ZNK3sce2Np9CppWebApi6Common11TransactionINS2_12IntrusivePtrINS1_14SessionManager2V161PostPlayerSessionsSessionIdJoinableSpecifiedUsersResponseBodyEEENS4_INS2_18ResponseHeaderBaseEEEE11hasResponseEv() {
@@ -3456,7 +3456,7 @@ void APS5_VABI _ZN3sce2Np9CppWebApi6Common12IntrusivePtrINS1_14SessionManager2V1
 
 void* APS5_VABI _ZNK3sce2Np9CppWebApi6Common12IntrusivePtrINS1_14SessionManager2V133ResponsePlayerSessionMemberPlayerEEptEv(const IntrusivePtr* self) {
     NetBridgeCall netCall("libSceNpCppWebApi", __func__);
-    return netCall.Ret(self->object);
+    return self->object;
 }
 
 int APS5_VABI _ZNK3sce2Np9CppWebApi6Common11TransactionINS2_12IntrusivePtrINS1_14SessionManager2V129GetPlayerSessionsResponseBodyEEENS4_INS2_18ResponseHeaderBaseEEEE11getResponseERS8_() {
@@ -3555,7 +3555,7 @@ void APS5_VABI _ZN3sce2Np9CppWebApi6Common6VectorINS2_12IntrusivePtrINS1_14Sessi
 
 void* APS5_VABI _ZNK3sce2Np9CppWebApi6Common12IntrusivePtrINS1_14SessionManager2V120PlayerSessionForReadEEptEv(const IntrusivePtr* self) {
     NetBridgeCall netCall("libSceNpCppWebApi", __func__);
-    return netCall.Ret(self->object);
+    return self->object;
 }
 
 int APS5_VABI _ZNK3sce2Np9CppWebApi6Common15TransactionBaseINS2_12IntrusivePtrINS1_14SessionManager2V152PostPlayerSessionsSessionIdMemberPlayersResponseBodyEEENS4_INS2_18ResponseHeaderBaseEEEE5getIdEv() {
@@ -3738,12 +3738,12 @@ int APS5_VABI _ZNK3sce2Np9CppWebApi6Common8IteratorINS2_12IntrusivePtrINS1_13InG
 
 void* APS5_VABI _ZNK3sce2Np9CppWebApi6Common12IntrusivePtrINS2_6VectorINS3_INS1_13InGameCatalog2V57ProductEEEEEEdeEv(const IntrusivePtr* self) {
     NetBridgeCall netCall("libSceNpCppWebApi", __func__);
-    return netCall.Ret(self->object);
+    return self->object;
 }
 
 void* APS5_VABI _ZNK3sce2Np9CppWebApi6Common12IntrusivePtrINS1_13InGameCatalog2V53SkuEEptEv(const IntrusivePtr* self) {
     NetBridgeCall netCall("libSceNpCppWebApi", __func__);
-    return netCall.Ret(self->object);
+    return self->object;
 }
 
 int APS5_VABI _ZN3sce2Np9CppWebApi6Common13ConstIteratorINS2_12IntrusivePtrINS1_13InGameCatalog2V53SkuEEEED2Ev(void* self) {
@@ -3801,7 +3801,7 @@ int APS5_VABI _ZN3sce2Np9CppWebApi6Common6VectorINS2_12IntrusivePtrINS1_13InGame
 
 void* APS5_VABI _ZNK3sce2Np9CppWebApi6Common12IntrusivePtrINS2_6VectorINS3_INS1_13InGameCatalog2V53SkuEEEEEEdeEv(const IntrusivePtr* self) {
     NetBridgeCall netCall("libSceNpCppWebApi", __func__);
-    return netCall.Ret(self->object);
+    return self->object;
 }
 
 int APS5_VABI _ZN3sce2Np9CppWebApi6Common8IteratorINS2_12IntrusivePtrINS1_13InGameCatalog2V53SkuEEEEppEv() {
@@ -3857,7 +3857,7 @@ int APS5_VABI _ZN3sce2Np9CppWebApi6Common6VectorINS2_6StringEE8copyFromERKS5_() 
 
 void* APS5_VABI _ZNK3sce2Np9CppWebApi6Common12IntrusivePtrINS2_6VectorImEEE3getEv(const IntrusivePtr* self) {
     NetBridgeCall netCall("libSceNpCppWebApi", __func__);
-    return netCall.Ret(self->object);
+    return self->object;
 }
 
 int APS5_VABI _ZNK3sce2Np9CppWebApi6Common8IteratorINS2_6StringEEneERKS5_() {
@@ -3873,7 +3873,7 @@ int APS5_VABI _ZNK3sce2Np9CppWebApi6Common11TransactionINS2_15DefaultResponseENS
 
 void* APS5_VABI _ZNK3sce2Np9CppWebApi6Common12IntrusivePtrINS2_6VectorINS2_6StringEEEEptEv(const IntrusivePtr* self) {
     NetBridgeCall netCall("libSceNpCppWebApi", __func__);
-    return netCall.Ret(self->object);
+    return self->object;
 }
 
 int APS5_VABI _ZN3sce2Np9CppWebApi6Common6VectorINS2_6StringEE3endEv() {
@@ -3918,7 +3918,7 @@ int APS5_VABI _ZNK3sce2Np9CppWebApi6Common6String5emptyEv(const CommonString* se
 
 void* APS5_VABI _ZNK3sce2Np9CppWebApi6Common12IntrusivePtrINS2_6VectorINS2_6StringEEEE3getEv(const IntrusivePtr* self) {
     NetBridgeCall netCall("libSceNpCppWebApi", __func__);
-    return netCall.Ret(self->object);
+    return self->object;
 }
 
 int APS5_VABI _ZNK3sce2Np9CppWebApi6Common8IteratorINS2_6StringEEdeEv() {

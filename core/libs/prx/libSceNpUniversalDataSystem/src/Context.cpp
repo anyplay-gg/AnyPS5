@@ -6,6 +6,7 @@
 #include <string>
 
 #include "NpUniversalDataSystem.hpp"
+#include "prx/libSceNetCtl/include/NetBridge.hpp"
 #include "SceTypes.hpp"
 #include "prx/libc/include/General.hpp"
 
@@ -39,6 +40,7 @@ std::optional<ContextOwner> FindContext(int context) {
 extern "C" {
 
 int APS5_VABI sceNpUniversalDataSystemCreateContext(int* context, int user_id, uint32_t service_label, uint64_t options) {
+    NetBridgeCall netCall("libSceNpUniversalDataSystem", __func__, [&](NetBridgeJson& netIn) { netIn.Int("user_id", user_id); netIn.Uint("service_label", service_label); netIn.Uint("options", options); });
     if (context == nullptr) {
         throw std::invalid_argument(std::string(__func__) + ": invalid argument context");
     }
@@ -46,18 +48,20 @@ int APS5_VABI sceNpUniversalDataSystemCreateContext(int* context, int user_id, u
     std::lock_guard lock(table.mutex);
     *context = table.next++;
     table.owners[*context] = {user_id, service_label};
-    return SCE_NP_UNIVERSAL_DATA_SYSTEM_OK;
+    return netCall.Ret(SCE_NP_UNIVERSAL_DATA_SYSTEM_OK);
 }
 
 int APS5_VABI sceNpUniversalDataSystemDestroyContext(int context) {
+    NetBridgeCall netCall("libSceNpUniversalDataSystem", __func__, [&](NetBridgeJson& netIn) { netIn.Int("context", context); });
     auto& table = Uds::contexts();
     std::lock_guard lock(table.mutex);
     table.owners.erase(context);
-    return SCE_NP_UNIVERSAL_DATA_SYSTEM_OK;
+    return netCall.Ret(SCE_NP_UNIVERSAL_DATA_SYSTEM_OK);
 }
 
 int APS5_VABI sceNpUniversalDataSystemRegisterContext(int context, int handle, uint64_t options) {
-    return SCE_NP_UNIVERSAL_DATA_SYSTEM_OK;
+    NetBridgeCall netCall("libSceNpUniversalDataSystem", __func__, [&](NetBridgeJson& netIn) { netIn.Int("context", context); netIn.Int("handle", handle); netIn.Uint("options", options); });
+    return netCall.Ret(SCE_NP_UNIVERSAL_DATA_SYSTEM_OK);
 }
 
 }
