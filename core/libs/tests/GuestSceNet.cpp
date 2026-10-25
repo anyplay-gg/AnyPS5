@@ -1379,6 +1379,35 @@ static void CheckEpollKernelSocket() {
     Require(Failed(sceNetEpollControl(epoll, 3, sender, nullptr), 9));
     Require(Failed(sceNetEpollControl(epoll, 1, unpolled, &registration), 9));
     Require(Failed(sceNetEpollControl(epoll, 1, 0x7ffffff0, &registration), 9));
+    const int stale = socket_nid_postfix(2, 2, 0);
+    Require(stale >= 0);
+    registration.events = 1;
+    registration.data.u32 = 79;
+    Require(sceNetEpollControl(epoll, 1, stale, &registration) == 0);
+    Require(sceKernelClose(stale) == 0);
+    std::vector<int> spare;
+    int reused = -1;
+    for (int attempt = 0; attempt < 64 && reused != stale; ++attempt) {
+        reused = socket_nid_postfix(2, 2, 0);
+        Require(reused >= 0);
+        if (reused != stale) spare.push_back(reused);
+    }
+    Require(reused == stale);
+    std::array<std::uint8_t, 16> reusedAddress{16, 2, 0, 0, 127, 0, 0, 1};
+    Require(bind_nid_postfix(reused, reusedAddress.data(), reusedAddress.size()) == 0);
+    size = reusedAddress.size();
+    Require(getsockname_nid_postfix(reused, reusedAddress.data(), &size) == 0 && size == reusedAddress.size());
+    const int reusedSender = socket_nid_postfix(2, 2, 0);
+    Require(reusedSender >= 0);
+    Require(sendto_nid_postfix(reusedSender, payload, sizeof(payload), 0, reusedAddress.data(), reusedAddress.size()) == sizeof(payload));
+    Require(sceNetEpollWait(epoll, &ready, 1, 100000) == 0);
+    registration.data.u32 = 80;
+    Require(sceNetEpollControl(epoll, 1, reused, &registration) == 0);
+    Require(sceNetEpollWait(epoll, &ready, 1, 1000000) == 1);
+    Require(ready.events == 1 && ready.ident == static_cast<std::uint64_t>(reused) && ready.data.u32 == 80);
+    Require(close_nid_postfix(reusedSender) == 0);
+    Require(close_nid_postfix(reused) == 0);
+    for (const int descriptor : spare) Require(close_nid_postfix(descriptor) == 0);
     Require(sceNetEpollDestroy(epoll) == 0);
     Require(close_nid_postfix(receiver) == 0);
 }

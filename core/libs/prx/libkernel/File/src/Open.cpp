@@ -13,6 +13,7 @@
 #include "prx/libkernel/File/include/DescriptorControl.hpp"
 #include "prx/libkernel/File/include/FileLock.hpp"
 #include "prx/libkernel/Socket/include/SocketRuntime.hpp"
+#include "prx/libkernel/Socket/include/SocketPoll.hpp"
 #include "prx/libkernel/File/include/RandomDevice.hpp"
 #include "prx/libkernel/File/include/HostStreams.hpp"
 #include "prx/libkernel/File/include/ArchivedFile.hpp"
@@ -303,6 +304,8 @@ int OpenInDirectory_nid_no_patch(int directory, const char* path, int flags, std
 
 int APS5_VABI sceKernelClose(int d) {
     if (File::IsHostStream(d)) return SCE_KERNEL_ERROR_EPERM;
+    int socketError = 0;
+    if (KernelCloseSocket_nid_no_patch(d, &socketError)) return socketError == 0 ? 0 : SceKernelError(socketError);
     if (GuestSockets::IsOpen(d)) return GuestSockets::Close(d) == 0 ? 0 : SceKernelError(*__error_nid_postfix());
     EqueueDescriptorClosed(d);
 #ifdef _WIN32
