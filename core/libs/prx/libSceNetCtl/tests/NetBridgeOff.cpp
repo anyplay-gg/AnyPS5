@@ -13,7 +13,7 @@
 #include <stdexcept>
 #include <string>
 
-extern "C" int APS5_VABI sceNetCtlGetNatInfo(NetCtlNatInfo* info);
+#include "prx/libSceNetCtl/include/NetCtl.hpp"
 
 namespace {
 

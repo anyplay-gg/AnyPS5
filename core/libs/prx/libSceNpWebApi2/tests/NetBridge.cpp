@@ -12,22 +12,7 @@
 #include <sstream>
 #include <string>
 
-extern "C" {
-int APS5_VABI sceNpWebApi2Initialize(int lib_http_ctx_id, std::size_t pool_size);
-int APS5_VABI sceNpWebApi2CreateUserContext(int lib_ctx_id, int user_id);
-int APS5_VABI sceNpWebApi2DeleteUserContext(int user_context_id);
-int APS5_VABI sceNpWebApi2CreateRequest(int user_context_id, const char* api_group, const char* path, const char* method, const void* content_parameter, std::int64_t* request_id);
-int APS5_VABI sceNpWebApi2AddHttpRequestHeader(std::int64_t request_id, const char* field_name, const char* value);
-int APS5_VABI sceNpWebApi2SendRequest(std::int64_t request_id, const void* data, std::size_t data_size, NpWebApi2ResponseInformationOption* response_info_option);
-int APS5_VABI sceNpWebApi2ReadData(std::int64_t request_id, void* data, std::size_t size);
-int APS5_VABI sceNpWebApi2GetHttpResponseHeaderValueLength(std::int64_t request_id, const char* field_name, std::size_t* value_length);
-int APS5_VABI sceNpWebApi2GetHttpResponseHeaderValue(std::int64_t request_id, const char* field_name, char* value, std::size_t value_size);
-int APS5_VABI sceNpWebApi2DeleteRequest(std::int64_t request_id);
-int APS5_VABI sceNpWebApi2PushEventCreateHandle(int library_context_id);
-int APS5_VABI sceNpWebApi2PushEventCreateFilter(int lib_ctx_id, int handle_id, const char* np_service_name, std::uint32_t np_service_label, const void* filter_param, std::size_t filter_param_num);
-int APS5_VABI sceNpWebApi2PushEventDeleteFilter(std::int32_t library_context_id, std::int32_t filter_id);
-int APS5_VABI sceNpWebApi2PushEventRegisterCallback(int user_context_id, int filter_id, void* callback, void* user_arg);
-}
+#include "prx/libSceNpWebApi2/include/Api.hpp"
 
 namespace {
 
