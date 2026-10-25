@@ -1,4 +1,16 @@
-# About
+# AnyPS5, AnyPlay fork
+
+This is [AnyPlay](https://anyplaynet.com)'s fork of [boykopovar/AnyPS5](https://github.com/boykopovar/AnyPS5). Get AnyPS5, report engine bugs and follow its development there. The fork exists for one addition, the **network bridge**.
+
+- **What it adds:** a small bridge inside the system libraries that hands a game's sign-in, session and web API calls to the [AnyPlay net service](https://github.com/anyplaynet/network) on the same PC. It is off unless the [AnyPlay Launcher](https://github.com/anyplaynet/launcher) sets its variables for one game start; without them every library behaves as in upstream. An observation mode writes down what a game asks for. The protocol is in [anyplaynet/network](https://github.com/anyplaynet/network/blob/main/spec/bridge-protocol.md).
+- **What it does not change:** everything else is upstream's. Only the neutral part of the bridge is meant to go upstream.
+- **Builds:** the fork's CI builds the C++ tree; the full Windows job has a 120-minute limit here.
+
+Questions and ideas: the [AnyPlay Discord](https://discord.gg/9zYqf8fEsh).
+
+---
+
+## About AnyPS5 (upstream)
 
 Tool for automatic executables porting to Linux and Windows.
 
