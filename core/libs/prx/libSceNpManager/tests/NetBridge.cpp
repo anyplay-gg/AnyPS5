@@ -3,6 +3,7 @@
 #include "prx/libSceUserService/UserService.hpp"
 #include "prx/libc/include/general/VabiMacros.hpp"
 #include "SceTypes.hpp"
+#include "prx/libSceNpManager/include/Api.hpp"
 
 #include <cstdint>
 #include <cstdio>
@@ -12,27 +13,6 @@
 #include <sstream>
 #include <stdexcept>
 #include <string>
-
-extern "C" {
-int APS5_VABI sceNpGetState(int user_id, std::uint32_t* state);
-int APS5_VABI sceNpGetOnlineId(int user_id, NpOnlineId* online_id);
-int APS5_VABI sceNpGetNpId(int user_id, NpId* np_id);
-int APS5_VABI sceNpGetAccountIdA(int user_id, std::uint64_t* account_id);
-int APS5_VABI sceNpCheckCallback(void);
-int APS5_VABI sceNpRegisterStateCallback(void* callback, void* userdata);
-int APS5_VABI sceNpRegisterStateCallbackA(void* callback, void* userdata);
-int APS5_VABI sceNpCreateRequest(void);
-int APS5_VABI sceNpDeleteRequest(int req_id);
-int APS5_VABI sceNpCheckPlus(int req_id, const void* param, void* result);
-int APS5_VABI sceNpCheckPremium(int req_id, const NpCheckPremiumParameter* param, NpCheckPremiumResult* result);
-int APS5_VABI sceNpPollAsync(int req_id, int* result);
-int APS5_VABI sceNpNotifyPlusFeature(const void* param);
-int APS5_VABI sceUserServiceGetNpAccountId(int user_id, std::uint64_t* account_id);
-int APS5_VABI sceNpGetNpReachabilityState(int user_id, std::uint32_t* state);
-int APS5_VABI sceNpRegisterNpReachabilityStateCallback(void* callback, void* userdata);
-int APS5_VABI sceNpUnregisterNpReachabilityStateCallback(void);
-int APS5_VABI sceNpHasSignedUp(int user_id, bool* has_signed_up);
-}
 
 namespace {
 
@@ -104,8 +84,8 @@ int main() {
     const std::uint8_t address[4] = {0x05, 0x00, 0x12, 0xC6};
     service.SetState(true, AccountId, "Sixteen_Chars_16", 1, address);
 
-    Require(sceNpRegisterStateCallback(reinterpret_cast<void*>(&LegacyCallback), nullptr) == 0, "register legacy callback");
-    Require(sceNpRegisterStateCallbackA(reinterpret_cast<void*>(&ModernCallback), nullptr) == 1, "register modern callback");
+    Require(sceNpRegisterStateCallback(reinterpret_cast<NpStateCallback>(&LegacyCallback), nullptr) == 0, "register legacy callback");
+    Require(sceNpRegisterStateCallbackA(reinterpret_cast<NpStateCallbackA>(&ModernCallback), nullptr) == 1, "register modern callback");
     Require(sceNpRegisterNpReachabilityStateCallback(reinterpret_cast<void*>(&ReachabilityCallback), nullptr) == 0, "register reachability callback");
 
     std::uint32_t state = 0;

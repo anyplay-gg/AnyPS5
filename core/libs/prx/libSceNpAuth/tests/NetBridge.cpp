@@ -2,25 +2,12 @@
 #include "prx/libSceNetCtl/tests/FakeNetService.hpp"
 #include "prx/libc/include/general/VabiMacros.hpp"
 #include "SceTypes.hpp"
+#include "prx/libSceNpAuth/include/Api.hpp"
 
 #include <array>
 #include <cstdint>
 #include <functional>
 #include <string>
-
-extern "C" {
-int APS5_VABI sceNpAuthCreateRequest(void);
-int APS5_VABI sceNpAuthCreateAsyncRequest(const void* param);
-int APS5_VABI sceNpAuthPollAsync(int req_id, int* result);
-int APS5_VABI sceNpAuthDeleteRequest(int req_id);
-int APS5_VABI sceNpAuthGetAuthorizedAppCode(std::int32_t, const NpAuthAuthorizedAppCodeParameter*, char*, std::int32_t*, bool*);
-int APS5_VABI sceNpAuthGetAuthorizationCodeV3(int req_id, const void* param, void* auth_code, int* issuer_id);
-int APS5_VABI sceNpAuthGetAuthorizationCodeA(int req_id, const void* param, void* auth_code, int* issuer_id);
-int APS5_VABI sceNpAuthGetAuthorizationCode(int req_id, const void* param, void* auth_code);
-int APS5_VABI sceNpAuthGetIdTokenV3(int req_id, const void* param, void* id_token);
-int APS5_VABI sceNpAuthGetIdTokenA(int req_id, const void* param, void* id_token);
-int APS5_VABI sceNpAuthGetIdToken(int req_id, const void* param, void* id_token);
-}
 
 namespace {
 
