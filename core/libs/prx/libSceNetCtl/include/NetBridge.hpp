@@ -318,6 +318,14 @@ public:
     NetBridgeCall(const NetBridgeCall&) = delete;
     NetBridgeCall& operator=(const NetBridgeCall&) = delete;
 
+    bool On() const {
+        return on;
+    }
+
+    NetBridgeJson& Out() {
+        return out;
+    }
+
     template <typename T>
     T Ret(T value) {
         if constexpr (std::is_integral_v<T> && !std::is_same_v<T, bool> && sizeof(T) <= sizeof(std::int32_t)) {

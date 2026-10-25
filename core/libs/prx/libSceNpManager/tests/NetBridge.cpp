@@ -28,6 +28,10 @@ int APS5_VABI sceNpCheckPremium(int req_id, const NpCheckPremiumParameter* param
 int APS5_VABI sceNpPollAsync(int req_id, int* result);
 int APS5_VABI sceNpNotifyPlusFeature(const void* param);
 int APS5_VABI sceUserServiceGetNpAccountId(int user_id, std::uint64_t* account_id);
+int APS5_VABI sceNpGetNpReachabilityState(int user_id, std::uint32_t* state);
+int APS5_VABI sceNpRegisterNpReachabilityStateCallback(void* callback, void* userdata);
+int APS5_VABI sceNpUnregisterNpReachabilityStateCallback(void);
+int APS5_VABI sceNpHasSignedUp(int user_id, bool* has_signed_up);
 }
 
 namespace {
@@ -51,6 +55,13 @@ struct Delivery {
 
 Delivery g_legacy;
 Delivery g_modern;
+Delivery g_reachability;
+
+void APS5_VABI ReachabilityCallback(int userId, std::uint32_t state, void*) {
+    ++g_reachability.calls;
+    g_reachability.userId = userId;
+    g_reachability.state = state;
+}
 
 void APS5_VABI LegacyCallback(int userId, std::uint32_t state, NpId* npId, void*) {
     ++g_legacy.calls;
@@ -95,6 +106,7 @@ int main() {
 
     Require(sceNpRegisterStateCallback(reinterpret_cast<void*>(&LegacyCallback), nullptr) == 0, "register legacy callback");
     Require(sceNpRegisterStateCallbackA(reinterpret_cast<void*>(&ModernCallback), nullptr) == 1, "register modern callback");
+    Require(sceNpRegisterNpReachabilityStateCallback(reinterpret_cast<void*>(&ReachabilityCallback), nullptr) == 0, "register reachability callback");
 
     std::uint32_t state = 0;
     Require(sceNpGetState(USER_SERVICE_INITIAL_USER_ID, &state) == 0 && state == 2, "signed in state");
@@ -106,6 +118,15 @@ int main() {
     Require(g_legacy.state == 2 && g_modern.state == 2 && g_legacy.userId == USER_SERVICE_INITIAL_USER_ID, "callbacks see signed in");
     Require(g_legacy.hadNpId && g_legacy.npIdName == "Sixteen_Chars_16", "legacy callback gets the NpId");
     Require(sceNpCheckCallback() == 0 && g_legacy.calls == 1 && g_modern.calls == 1, "no change, no delivery");
+    Require(g_reachability.calls == 1 && g_reachability.state == 2 && g_reachability.userId == USER_SERVICE_INITIAL_USER_ID, "reachability callback sees reachable once");
+    std::uint32_t reachability = 7;
+    Require(sceNpGetNpReachabilityState(USER_SERVICE_INITIAL_USER_ID, &reachability) == 0 && reachability == 2, "reachable while signed in");
+    Require(sceNpGetNpReachabilityState(OtherUser, &reachability) == 0 && reachability == 0, "another user is unavailable");
+    Require(sceNpGetNpReachabilityState(USER_SERVICE_INITIAL_USER_ID, nullptr) == InvalidArgument, "null reachability state");
+    bool signedUp = false;
+    Require(sceNpHasSignedUp(USER_SERVICE_INITIAL_USER_ID, &signedUp) == 0 && signedUp, "signed up while signed in");
+    Require(sceNpHasSignedUp(OtherUser, &signedUp) == 0 && !signedUp, "another user has not signed up");
+    Require(sceNpHasSignedUp(USER_SERVICE_INITIAL_USER_ID, nullptr) == InvalidArgument, "null sign-up flag");
 
     NpOnlineId onlineId;
     std::memset(&onlineId, 0x5A, sizeof(onlineId));
@@ -148,6 +169,9 @@ int main() {
     Require(Service::WaitUntil([] { return !SignedInNow(); }, 5000), "signed out");
     Require(sceNpCheckCallback() == 0 && g_legacy.calls == 2 && g_modern.calls == 2, "sign out is delivered");
     Require(g_legacy.state == 1 && g_modern.state == 1 && !g_legacy.hadNpId, "callbacks see signed out");
+    Require(g_reachability.calls == 2 && g_reachability.state == 0, "reachability callback sees unavailable");
+    Require(sceNpGetNpReachabilityState(USER_SERVICE_INITIAL_USER_ID, &reachability) == 0 && reachability == 0, "unavailable while signed out");
+    Require(sceNpHasSignedUp(USER_SERVICE_INITIAL_USER_ID, &signedUp) == 0 && !signedUp, "not signed up while signed out");
     Require(sceNpGetState(USER_SERVICE_INITIAL_USER_ID, &state) == 0 && state == 1, "signed out state");
     Require(sceNpGetOnlineId(USER_SERVICE_INITIAL_USER_ID, &onlineId) == SignedOut, "no online id while signed out");
     Require(sceNpGetNpId(USER_SERVICE_INITIAL_USER_ID, &npId) == SignedOut, "no np id while signed out");
@@ -162,6 +186,9 @@ int main() {
     service.SetState(true, AccountId, "Sixteen_Chars_16", 1, address);
     Require(Service::WaitUntil([] { return SignedInNow(); }, 5000), "signed in again");
     Require(sceNpCheckCallback() == 0 && g_legacy.calls == 3 && g_modern.calls == 3 && g_modern.state == 2, "sign in is delivered");
+    Require(g_reachability.calls == 3 && g_reachability.state == 2, "reachability follows the second sign in");
+    Require(sceNpUnregisterNpReachabilityStateCallback() == 0, "unregister reachability callback");
+    Require(sceNpCheckCallback() == 0 && g_reachability.calls == 3, "no reachability delivery after unregistering");
 
     Require(Service::WaitUntil([&] {
         const std::string content = ReadFile(observePath);
