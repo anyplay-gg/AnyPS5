@@ -129,15 +129,18 @@ int main() {
     std::uint8_t plusResult[40];
     std::memset(plusResult, 0x5A, sizeof(plusResult));
     const std::uint8_t plusParameter[16] = {};
-    Require(sceNpCheckPlus(request, plusParameter, plusResult) == SignedOut && plusResult[0] == 0x5A, "plus stays signed out while signed in");
+    Require(sceNpCheckPlus(request, plusParameter, plusResult) == 0 && plusResult[0] == 1 && plusResult[1] == 0x5A, "plus granted while signed in");
     int polled = 1;
-    Require(sceNpPollAsync(request, &polled) == 0 && polled == SignedOut, "poll stays signed out while signed in");
+    Require(sceNpPollAsync(request, &polled) == 0 && polled == 0, "poll reports the grant");
     NpCheckPremiumParameter premiumParameter{};
     NpCheckPremiumResult premiumResult;
     std::memset(&premiumResult, 0x5A, sizeof(premiumResult));
-    Require(sceNpCheckPremium(request, &premiumParameter, &premiumResult) == SignedOut && premiumResult.opaque[0] == 0x5A, "premium stays signed out while signed in");
+    Require(sceNpCheckPremium(request, &premiumParameter, &premiumResult) == 0 && premiumResult.opaque[0] == 1 && premiumResult.opaque[1] == 0 && premiumResult.opaque[63] == 0, "premium granted while signed in");
+    Require(sceNpCheckPremium(request, &premiumParameter, nullptr) == InvalidArgument, "premium without a result");
     Require(sceNpCheckPlus(0, plusParameter, plusResult) == InvalidArgument && sceNpCheckPlus(request, nullptr, plusResult) == InvalidArgument, "plus arguments");
     Require(sceNpDeleteRequest(request) == 0, "delete request");
+    Require(sceNpCheckPlus(request, plusParameter, plusResult) == RequestNotFound, "plus on a deleted request");
+    Require(sceNpPollAsync(request, &polled) == 0 && polled == SignedOut, "a deleted request polls as today");
 
     int dummyFeature = 0;
     Require(sceNpNotifyPlusFeature(&dummyFeature) == 0, "plus feature accepted");
@@ -172,6 +175,7 @@ int main() {
     Require(content.find("\"fn\":\"sceNpGetState\",\"in\":{\"user_id\":268435456},\"out\":{\"state\":2},\"ret\":\"0x0\"") != std::string::npos, "sceNpGetState line");
     Require(content.find("\"fn\":\"sceNpGetOnlineId\",\"in\":{\"user_id\":268435456},\"out\":{\"online_id\":\"Sixteen_Chars_16\"},\"ret\":\"0x0\"") != std::string::npos, "sceNpGetOnlineId line");
     Require(content.find("\"fn\":\"sceNpGetAccountIdA\",\"in\":{\"user_id\":268435456},\"out\":{},\"ret\":\"0x80550006\"") != std::string::npos, "signed out account line");
+    Require(content.find("\"fn\":\"sceNpCheckPlus\",\"in\":{\"req_id\":" + std::to_string(request) + "},\"out\":{\"authorized\":true},\"ret\":\"0x0\"") != std::string::npos, "sceNpCheckPlus authorized line");
 
     std::filesystem::remove(observePath, removed);
     std::puts("np manager net bridge: ok");
