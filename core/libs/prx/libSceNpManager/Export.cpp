@@ -1,3 +1,4 @@
+#include "prx/libSceNpManager/include/Api.hpp"
 #include <cstdint>
 #include <cstddef>
 #include "SceTypes.hpp"
@@ -63,9 +64,6 @@ int SignedOutRequest(int reqId) {
     std::lock_guard lock(requestMutex);
     return liveRequests.count(reqId) ? SCE_NP_ERROR_SIGNED_OUT : SCE_NP_ERROR_REQUEST_NOT_FOUND;
 }
-
-using NpStateCallbackA = void (APS5_VABI *)(int userId, uint32_t state, void* userdata);
-using NpStateCallback = void (APS5_VABI *)(int userId, uint32_t state, NpId* npId, void* userdata);
 
 constexpr int NP_STATE_CALLBACK_MAX = 8;
 
@@ -694,8 +692,8 @@ int APS5_VABI sceNpManagerIntLoginGetAccessToken(void) {
 }
 
 int APS5_VABI sceNpAbortRequest(int req_id) {
-    (void)req_id;
-    return 0;
+    std::lock_guard lock(requestMutex);
+    return liveRequests.count(req_id) ? 0 : SCE_NP_ERROR_REQUEST_NOT_FOUND;
 }
 
 int APS5_VABI sceNpCheckCallback(void) {
@@ -769,6 +767,7 @@ int APS5_VABI sceNpCreateRequest(void) {
 
 int APS5_VABI sceNpDeleteRequest(int req_id) {
     std::lock_guard lock(requestMutex);
+    if (!liveRequests.count(req_id)) return SCE_NP_ERROR_REQUEST_NOT_FOUND;
     liveRequests.erase(req_id);
     return 0;
 }
@@ -916,8 +915,11 @@ int APS5_VABI sceNpHasSignedUp(int user_id, bool* has_signed_up) {
 }
 
 int APS5_VABI sceNpPollAsync(int req_id, int* result) {
+    if (!result) return SCE_NP_ERROR_INVALID_ARGUMENT;
+    std::lock_guard lock(requestMutex);
+    if (!liveRequests.count(req_id)) return SCE_NP_ERROR_REQUEST_NOT_FOUND;
     const int value = SCE_NP_ERROR_SIGNED_OUT;
-    if (result) *result = value;
+    *result = value;
     NetBridgeRecord(NP_LIBRARY, "sceNpPollAsync", true, NP_POLL_ASYNC_FINISHED, [&](NetBridgeJson& in, NetBridgeJson& out) {
         in.Int("req_id", req_id);
         out.Int("result", value);
@@ -1080,7 +1082,6 @@ int APS5_VABI sceNpUnknown_WxLcN76q19o(void) {
     NotImplemented_nid_no_patch(__func__);
     return 0;
 }
-
 
 int APS5_VABI sceNpCheckCallbackForLib() {
     return sceNpCheckCallback();
