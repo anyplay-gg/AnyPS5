@@ -928,20 +928,23 @@ bool connect_pending() {
 #endif
 }
 
+int remaining_ms(std::chrono::steady_clock::time_point deadline) {
+    const auto left = std::chrono::ceil<std::chrono::milliseconds>(deadline - std::chrono::steady_clock::now()).count();
+    return left > 0 ? static_cast<int>(left) : 0;
+}
+
 bool send_preamble(NativeSocket native, const std::uint8_t* data, std::size_t size) {
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(P2P_PREAMBLE_TIMEOUT_MS);
     while (size > 0) {
+        const int left = remaining_ms(deadline);
+        if (left == 0 || !wait_native(native, true, left)) return false;
         const auto sent = ::send(native, reinterpret_cast<const char*>(data), static_cast<int>(size), NATIVE_SEND_FLAGS);
         if (sent > 0) {
             data += sent;
             size -= static_cast<std::size_t>(sent);
-            continue;
+        } else if (sent == 0 || !would_block()) {
+            return false;
         }
-        if (sent < 0 && would_block() && std::chrono::steady_clock::now() < deadline) {
-            wait_native(native, true, 50);
-            continue;
-        }
-        return false;
     }
     return true;
 }
@@ -949,17 +952,15 @@ bool send_preamble(NativeSocket native, const std::uint8_t* data, std::size_t si
 bool receive_preamble(NativeSocket native, std::uint8_t* data, std::size_t size) {
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(P2P_PREAMBLE_TIMEOUT_MS);
     while (size > 0) {
+        const int left = remaining_ms(deadline);
+        if (left == 0 || !wait_native(native, false, left)) return false;
         const auto got = ::recv(native, reinterpret_cast<char*>(data), static_cast<int>(size), 0);
         if (got > 0) {
             data += got;
             size -= static_cast<std::size_t>(got);
-            continue;
+        } else if (got == 0 || !would_block()) {
+            return false;
         }
-        if (got < 0 && would_block() && std::chrono::steady_clock::now() < deadline) {
-            wait_native(native, false, 50);
-            continue;
-        }
-        return false;
     }
     return true;
 }
@@ -1865,7 +1866,7 @@ int APS5_VABI sceNetSetsockopt(int s, int level, int optname, const void* optval
         if (!GuestSocketIsOpen_nid_no_patch(s)) return fail(NET_EBADF);
         return setsockopt_nid_postfix(s, level, optname, optval, optlen) == 0 ? 0 : fail(*__error_nid_postfix());
     }
-    if (level == NET_IPPROTO_TCP && socket.type != NET_SOCK_STREAM) return fail(NET_EINVAL);
+    if (level == NET_IPPROTO_TCP && socket.type != NET_SOCK_STREAM && socket.type != NET_SOCK_STREAM_P2P) return fail(NET_EINVAL);
     if (level == NET_IPPROTO_TCP && optname == NET_TCP_NODELAY) {
         if (!optval || optlen < sizeof(int)) return fail(NET_EINVAL);
         int value = 0;
@@ -1933,7 +1934,7 @@ int APS5_VABI sceNetGetsockopt(int s, int level, int optname, void* optval, uint
         return 0;
     }
     if (*optlen < sizeof(int)) return fail(NET_EINVAL);
-    if (level == NET_IPPROTO_TCP && socket.type != NET_SOCK_STREAM) return fail(NET_EINVAL);
+    if (level == NET_IPPROTO_TCP && socket.type != NET_SOCK_STREAM && socket.type != NET_SOCK_STREAM_P2P) return fail(NET_EINVAL);
     if (level == NET_IPPROTO_TCP && optname == NET_TCP_NODELAY) {
         int enabled = 0;
         NativeLength size = sizeof(enabled);

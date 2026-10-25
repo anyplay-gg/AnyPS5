@@ -2,6 +2,7 @@
 #include "prx/libSceNetCtl/tests/FakeNetService.hpp"
 #include "prx/libc/include/general/VabiMacros.hpp"
 
+#include <chrono>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
@@ -23,6 +24,7 @@ int APS5_VABI sceNetConnect(int, const void*, std::uint32_t);
 int APS5_VABI sceNetGetpeername(int, void*, std::uint32_t*);
 std::int64_t APS5_VABI sceNetSend(int, const void*, std::size_t, int);
 std::int64_t APS5_VABI sceNetRecv(int, void*, std::size_t, int);
+int APS5_VABI sceNetGetsockopt(int, int, int, void*, std::uint32_t*);
 }
 
 namespace {
@@ -182,6 +184,17 @@ std::int64_t ReceiveAll(int socket, std::uint8_t* buffer, std::size_t size) {
     return static_cast<std::int64_t>(total);
 }
 
+FakeNet::Handle ConnectRaw(std::uint16_t port) {
+    const FakeNet::Handle handle = ::socket(AF_INET, SOCK_STREAM, 0);
+    Require(handle != FakeNet::InvalidHandle, "raw socket");
+    sockaddr_in destination{};
+    destination.sin_family = AF_INET;
+    destination.sin_port = htons(port);
+    destination.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    Require(::connect(handle, reinterpret_cast<const sockaddr*>(&destination), sizeof(destination)) == 0, "raw connect to the listener");
+    return handle;
+}
+
 Bytes ReadFromService(FakeNet::Handle handle, std::size_t size) {
     Bytes bytes(size, 0);
     Require(FakeNet::ReadExact(handle, bytes.data(), bytes.size()), "service reads the stream");
@@ -222,6 +235,14 @@ void Streams(Service& service) {
     Require(sceNetAccept(listener, nullptr, nullptr) < 0 && *sceNetErrnoLoc() == EConnAborted, "a wrong key is refused");
     FakeNet::CloseHandleSafe(forged);
 
+    const FakeNet::Handle silent = ConnectRaw(streamBind.loopbackPort);
+    Require(FakeNet::WriteExact(silent, Bytes{0, 1, 2}), "a short opening");
+    const auto started = std::chrono::steady_clock::now();
+    Require(sceNetAccept(listener, nullptr, nullptr) < 0 && *sceNetErrnoLoc() == EConnAborted, "a connection that stops after 3 bytes is refused");
+    const auto waited = std::chrono::steady_clock::now() - started;
+    Require(waited >= std::chrono::seconds(4) && waited < std::chrono::seconds(9), "the opening has a 5 second deadline");
+    FakeNet::CloseHandleSafe(silent);
+
     const int client = sceNetSocket("p2p-stream", AfInet, SockStreamP2p, 0);
     Require(client >= 0, "client stream socket");
     const auto clientAddress = P2pAddress(0, GamePort, 5);
@@ -234,6 +255,11 @@ void Streams(Service& service) {
     Require(Service::WaitUntil([&] { return service.Streams().size() == 1; }, 5000), "stream reached the service");
     const auto call = service.Streams()[0];
     Require(call.keyMatches && call.address == Peer && call.vport == 6 && call.sourceVport == 5, "stream preamble");
+    const int noDelay = 1;
+    Require(sceNetSetsockopt(client, 6, 1, &noDelay, sizeof(noDelay)) == 0, "TCP_NODELAY on a peer-to-peer stream");
+    int readBack = 0;
+    std::uint32_t readLength = sizeof(readBack);
+    Require(sceNetGetsockopt(client, 6, 1, &readBack, &readLength) == 0 && readBack != 0, "TCP_NODELAY reads back");
     Require(sceNetSend(client, "ping", 4, 0) == 4, "send on the stream");
     std::uint8_t echo[4]{};
     Require(ReceiveAll(client, echo, sizeof(echo)) == 4 && std::memcmp(echo, "ping", 4) == 0, "receive the echo");
