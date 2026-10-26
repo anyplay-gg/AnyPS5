@@ -247,6 +247,51 @@ int main() {
     Require(service.PushFilters()[0].filter == 77 && service.PushFilters()[0].dataTypes == std::vector<std::string>({"a.b", "c"}), "push filter event");
     Require(service.PushGone()[0].second == 77, "push filter gone event");
 
+    struct PushRecord {
+        std::int32_t userId = 0;
+        std::uint32_t filter = 0;
+        std::string dataType;
+        std::uint64_t from = 0;
+        std::uint64_t to = 0;
+        std::vector<std::uint8_t> data;
+        std::vector<std::pair<std::string, std::string>> extended;
+    };
+    std::vector<PushRecord> pushRecords;
+    const int handlerId = NetBridgeRegisterPushHandler_nid_no_patch([](const NetBridgePushEventView* event, void* userArg) {
+        auto* records = static_cast<std::vector<PushRecord>*>(userArg);
+        PushRecord record;
+        record.userId = event->userId;
+        record.filter = event->filter;
+        record.dataType = event->dataType != nullptr ? event->dataType : "";
+        record.from = event->from;
+        record.to = event->to;
+        if (event->data != nullptr && event->dataSize > 0) {
+            const auto* bytes = static_cast<const std::uint8_t*>(event->data);
+            record.data.assign(bytes, bytes + event->dataSize);
+        }
+        for (std::uint32_t i = 0; i < event->extendedCount; ++i) {
+            record.extended.emplace_back(
+                event->extendedNames[i] != nullptr ? event->extendedNames[i] : "",
+                event->extendedValues[i] != nullptr ? event->extendedValues[i] : ""
+            );
+        }
+        records->push_back(std::move(record));
+    }, &pushRecords);
+    Require(handlerId > 0, "push handler registered");
+
+    const FakeNet::Pairs extendedPairs = {{"key1", "val1"}, {"key2", "val2"}};
+    service.SendPushEvent(12, 77, "custom.type", 1001, 2002, {0xAA, 0xBB, 0xCC}, extendedPairs);
+    Require(Service::WaitUntil([&] { return pushRecords.size() == 1; }, 5000), "push event received");
+    Require(pushRecords[0].userId == 12 && pushRecords[0].filter == 77 && pushRecords[0].dataType == "custom.type", "push event fields");
+    Require(pushRecords[0].from == 1001 && pushRecords[0].to == 2002, "push event sender/receiver");
+    Require(pushRecords[0].data == std::vector<std::uint8_t>({0xAA, 0xBB, 0xCC}), "push event payload");
+    Require(pushRecords[0].extended == extendedPairs, "push event extended pairs");
+
+    NetBridgeUnregisterPushHandler_nid_no_patch(handlerId);
+    service.SendPushEvent(12, 77, "custom.type2", 1001, 2002, {0xDD});
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    Require(pushRecords.size() == 1, "push handler unregistered stops receiving events");
+
     std::uint64_t junkBefore = 0;
     CurrentState(&junkBefore);
     service.SendRaw(FakeNet::MakeFrame(0x0101, 0, Bytes{1, 2, 3}));

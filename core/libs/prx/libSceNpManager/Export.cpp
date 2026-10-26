@@ -940,6 +940,7 @@ int APS5_VABI sceNpCheckCallback(void) {
             out.Int("user_id", USER_SERVICE_INITIAL_USER_ID).Uint("state", reachability);
         });
     }
+    NetBridgeDeliverPushEvents_nid_no_patch();
     return 0;
 }
 

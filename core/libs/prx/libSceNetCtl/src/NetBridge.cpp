@@ -427,6 +427,50 @@ public:
         Event(KindUnbind, payload.Take());
     }
 
+    int RegisterPushHandler(NetBridgePushHandler handler, void* userArg) {
+        if (handler == nullptr) return 0;
+        std::lock_guard lock(pushMutex);
+        const int id = nextPushHandlerId++;
+        pushHandlers.push_back(PushHandlerSlot{id, handler, userArg});
+        return id;
+    }
+
+    void UnregisterPushHandler(int registrationId) {
+        std::lock_guard lock(pushMutex);
+        std::erase_if(pushHandlers, [registrationId](const PushHandlerSlot& slot) {
+            return slot.id == registrationId;
+        });
+    }
+
+    int RegisterPushPump(NetBridgePushPump pump, void* userArg) {
+        if (pump == nullptr) return 0;
+        std::lock_guard lock(pumpMutex);
+        const int id = nextPushPumpId++;
+        pushPumps.push_back(PushPumpSlot{id, pump, userArg});
+        return id;
+    }
+
+    void UnregisterPushPump(int registrationId) {
+        std::lock_guard lock(pumpMutex);
+        std::erase_if(pushPumps, [registrationId](const PushPumpSlot& slot) {
+            return slot.id == registrationId;
+        });
+    }
+
+    void DeliverPushEvents() {
+        std::vector<PushPumpSlot> slots;
+        {
+            std::lock_guard lock(pumpMutex);
+            slots = pushPumps;
+        }
+        for (const auto& slot : slots) {
+            try {
+                if (slot.pump != nullptr) slot.pump(slot.userArg);
+            } catch (...) {
+            }
+        }
+    }
+
 private:
     bool Connected() {
         std::lock_guard lock(mutex);
@@ -570,6 +614,7 @@ private:
         if (header.request == 0) {
             if (header.kind == KindState) applyState(payload);
             else if (header.kind == KindPeer) applyPeer(payload);
+            else if (header.kind == KindPushEvent) applyPushEvent(payload);
             return;
         }
         if ((header.kind & ReplyBit) == 0) {
@@ -629,6 +674,52 @@ private:
         ++peerCounter;
     }
 
+    void applyPushEvent(const std::vector<std::uint8_t>& payload) {
+        Reader reader(payload.data(), payload.size());
+        const std::int32_t userId = reader.I32();
+        const std::uint32_t filter = reader.U32();
+        std::string dataType = reader.Str();
+        const std::uint64_t from = reader.U64();
+        const std::uint64_t to = reader.U64();
+        const auto data = reader.Bytes();
+        Pairs extended = reader.ReadPairs();
+        if (!reader.Ok()) return;
+        std::vector<const char*> extendedNames;
+        std::vector<const char*> extendedValues;
+        extendedNames.reserve(extended.size());
+        extendedValues.reserve(extended.size());
+        for (const auto& [name, value] : extended) {
+            extendedNames.push_back(name.c_str());
+            extendedValues.push_back(value.c_str());
+        }
+        NetBridgePushEventView view{};
+        view.userId = userId;
+        view.filter = filter;
+        view.dataType = dataType.c_str();
+        view.from = from;
+        view.to = to;
+        view.data = data.first;
+        view.dataSize = data.second;
+        view.extendedCount = static_cast<std::uint32_t>(extended.size());
+        view.extendedNames = extendedNames.data();
+        view.extendedValues = extendedValues.data();
+        dispatchPushEvent(&view);
+    }
+
+    void dispatchPushEvent(const NetBridgePushEventView* event) {
+        std::vector<PushHandlerSlot> slots;
+        {
+            std::lock_guard lock(pushMutex);
+            slots = pushHandlers;
+        }
+        for (const auto& slot : slots) {
+            try {
+                if (slot.handler != nullptr) slot.handler(event, slot.userArg);
+            } catch (...) {
+            }
+        }
+    }
+
     void setState(BridgeState next) {
         if (state == next) return;
         state = std::move(next);
@@ -652,6 +743,22 @@ private:
     std::map<PeerKey, Peer> peers;
     std::uint64_t peerCounter = 0;
     std::unordered_map<std::uint32_t, Waiter*> waiters;
+    struct PushHandlerSlot {
+        int id;
+        NetBridgePushHandler handler;
+        void* userArg;
+    };
+    std::mutex pushMutex;
+    std::vector<PushHandlerSlot> pushHandlers;
+    int nextPushHandlerId = 1;
+    struct PushPumpSlot {
+        int id;
+        NetBridgePushPump pump;
+        void* userArg;
+    };
+    std::mutex pumpMutex;
+    std::vector<PushPumpSlot> pushPumps;
+    int nextPushPumpId = 1;
 };
 
 Bridge* Create() {
@@ -848,6 +955,53 @@ extern "C" void NetBridgePushFilterGone_nid_no_patch(std::int32_t userId, std::u
         Builder payload;
         payload.I32(userId).U32(filter);
         bridge->Event(KindPushFilterGone, payload.Take());
+    } catch (...) {
+    }
+}
+
+extern "C" int NetBridgeRegisterPushHandler_nid_no_patch(NetBridgePushHandler handler, void* userArg) {
+    try {
+        Bridge* bridge = Instance();
+        if (bridge == nullptr) return 0;
+        return bridge->RegisterPushHandler(handler, userArg);
+    } catch (...) {
+        return 0;
+    }
+}
+
+extern "C" void NetBridgeUnregisterPushHandler_nid_no_patch(int registrationId) {
+    try {
+        Bridge* bridge = Instance();
+        if (bridge == nullptr) return;
+        bridge->UnregisterPushHandler(registrationId);
+    } catch (...) {
+    }
+}
+
+extern "C" int NetBridgeRegisterPushPump_nid_no_patch(NetBridgePushPump pump, void* userArg) {
+    try {
+        Bridge* bridge = Instance();
+        if (bridge == nullptr) return 0;
+        return bridge->RegisterPushPump(pump, userArg);
+    } catch (...) {
+        return 0;
+    }
+}
+
+extern "C" void NetBridgeUnregisterPushPump_nid_no_patch(int registrationId) {
+    try {
+        Bridge* bridge = Instance();
+        if (bridge == nullptr) return;
+        bridge->UnregisterPushPump(registrationId);
+    } catch (...) {
+    }
+}
+
+extern "C" void NetBridgeDeliverPushEvents_nid_no_patch(void) {
+    try {
+        Bridge* bridge = Instance();
+        if (bridge == nullptr) return;
+        bridge->DeliverPushEvents();
     } catch (...) {
     }
 }

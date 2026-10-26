@@ -30,6 +30,7 @@
 namespace FakeNet {
 
 using Bytes = std::vector<std::uint8_t>;
+using Pairs = std::vector<std::pair<std::string, std::string>>;
 
 #ifdef _WIN32
 using Handle = SOCKET;
@@ -438,6 +439,22 @@ public:
 
     void SendRaw(const Bytes& frame) {
         sendToClient(frame);
+    }
+
+    void SendPushEvent(std::int32_t userId, std::uint32_t filter, const std::string& dataType, std::uint64_t from, std::uint64_t to, const Bytes& data, const Pairs& extended = {}) {
+        Bytes payload;
+        Put32(payload, static_cast<std::uint32_t>(userId));
+        Put32(payload, filter);
+        PutText(payload, dataType);
+        Put64(payload, from);
+        Put64(payload, to);
+        PutBlob(payload, data);
+        Put16(payload, static_cast<std::uint16_t>(extended.size()));
+        for (const auto& [name, value] : extended) {
+            PutText(payload, name);
+            PutText(payload, value);
+        }
+        sendToClient(MakeFrame(0x0204, 0, payload));
     }
 
     void DropConnection() {

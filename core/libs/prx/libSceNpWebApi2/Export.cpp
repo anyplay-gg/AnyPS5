@@ -55,6 +55,30 @@ constexpr std::size_t MAX_WIRE_STRING = 0xFFFF;
 constexpr std::uint64_t MAX_REQUEST_BODY = 8ull * 1024 * 1024;
 constexpr std::uint64_t MAX_RETAINED_REPLY_BYTES = 64ull * 1024 * 1024;
 
+struct PushCallbackRegistration {
+    int callbackId;
+    int userContextId;
+    int filterId;
+    void* callback;
+    void* userArg;
+};
+
+struct QueuedPushEvent {
+    int userContextId;
+    int filterId;
+    std::string dataType;
+    std::vector<std::uint8_t> data;
+    std::vector<std::pair<std::string, std::string>> pairs;
+    void* callback;
+    void* userArg;
+};
+
+std::mutex g_pushCallbackMutex;
+std::unordered_map<int, PushCallbackRegistration> g_pushCallbacks;
+std::vector<QueuedPushEvent> g_pendingPushEvents;
+int g_bridgePushRegistrationId = 0;
+int g_bridgePushPumpId = 0;
+
 struct TrackedRequest {
     bool userKnown = false;
     bool complete = true;
@@ -110,6 +134,71 @@ const char* FindReplyHeader(const TrackedRequest& request, const char* name) {
     return nullptr;
 }
 
+void DeliverPendingPushEvents() {
+    std::vector<QueuedPushEvent> events;
+    {
+        std::lock_guard lock(g_pushCallbackMutex);
+        if (g_pendingPushEvents.empty()) return;
+        events.swap(g_pendingPushEvents);
+    }
+    for (const auto& event : events) {
+        NetBridgeRecord(WEB_API_LIBRARY, "sceNpWebApi2PushEventDeliver", false, 0, [&](NetBridgeJson& in, NetBridgeJson&) {
+            in.Int("user_context_id", event.userContextId).Int("filter_id", event.filterId).Text("data_type", event.dataType.c_str());
+            in.Uint("data_size", event.data.size());
+            if (!event.pairs.empty()) {
+                in.Begin("pairs");
+                for (const auto& pair : event.pairs) in.Text(pair.first, pair.second);
+                in.End();
+            }
+        });
+    }
+}
+
+void OnBridgePushPump(void*) {
+    DeliverPendingPushEvents();
+}
+
+void OnBridgePushEvent(const NetBridgePushEventView* event, void*) {
+    if (event == nullptr) return;
+    std::lock_guard lock(g_pushCallbackMutex);
+    std::lock_guard webLock(g_webMutex);
+    for (const auto& [id, reg] : g_pushCallbacks) {
+        if (reg.filterId == static_cast<int>(event->filter)) {
+            int regUser = -1;
+            const auto userIt = g_userContextUsers.find(reg.userContextId);
+            if (userIt != g_userContextUsers.end()) regUser = userIt->second;
+            if (regUser != -1 && (event->userId == -1 || event->userId == regUser)) {
+                QueuedPushEvent queued;
+                queued.userContextId = reg.userContextId;
+                queued.filterId = reg.filterId;
+                queued.dataType = event->dataType != nullptr ? event->dataType : "";
+                if (event->data != nullptr && event->dataSize > 0) {
+                    const auto* bytes = static_cast<const std::uint8_t*>(event->data);
+                    queued.data.assign(bytes, bytes + event->dataSize);
+                }
+                if (event->extendedCount > 0 && event->extendedNames != nullptr && event->extendedValues != nullptr) {
+                    queued.pairs.reserve(event->extendedCount);
+                    for (std::uint32_t i = 0; i < event->extendedCount; ++i) {
+                        queued.pairs.emplace_back(
+                            event->extendedNames[i] != nullptr ? event->extendedNames[i] : "",
+                            event->extendedValues[i] != nullptr ? event->extendedValues[i] : ""
+                        );
+                    }
+                }
+                queued.callback = reg.callback;
+                queued.userArg = reg.userArg;
+                g_pendingPushEvents.push_back(std::move(queued));
+            }
+        }
+    }
+}
+
+void EnsureBridgePushHandler() {
+    if (g_bridgePushRegistrationId != 0 || NetBridgeEnabled_nid_no_patch() == 0) return;
+    g_bridgePushRegistrationId = NetBridgeRegisterPushHandler_nid_no_patch(OnBridgePushEvent, nullptr);
+    g_bridgePushPumpId = NetBridgeRegisterPushPump_nid_no_patch(OnBridgePushPump, nullptr);
+}
+
 }
 
 extern "C" {
@@ -150,6 +239,7 @@ int APS5_VABI sceNpWebApi2AddWebTraceTag(std::int64_t requestId, const char* val
 }
 
 void APS5_VABI sceNpWebApi2CheckTimeout(void) {
+    DeliverPendingPushEvents();
 }
 
 int APS5_VABI sceNpWebApi2CreateRequest(int user_context_id, const char* api_group, const char* path, const char* method, const void* content_parameter, int64_t* request_id) {
@@ -201,8 +291,12 @@ int APS5_VABI sceNpWebApi2DeleteRequest(int64_t request_id) {
 
 int APS5_VABI sceNpWebApi2DeleteUserContext(int user_context_id) {
     {
+        std::lock_guard pushLock(g_pushCallbackMutex);
         std::lock_guard lock(g_webMutex);
         g_userContextUsers.erase(user_context_id);
+        std::erase_if(g_pushCallbacks, [user_context_id](const auto& item) {
+            return item.second.userContextId == user_context_id;
+        });
     }
     NetBridgeRecord(WEB_API_LIBRARY, "sceNpWebApi2DeleteUserContext", true, 0, [&](NetBridgeJson& in, NetBridgeJson&) { in.Int("user_context_id", user_context_id); });
     return 0;
@@ -318,8 +412,18 @@ int APS5_VABI sceNpWebApi2PushEventDeletePushContext(int user_context_id, const 
 }
 
 int APS5_VABI sceNpWebApi2PushEventRegisterCallback(int user_context_id, int filter_id, void* callback, void* user_arg) {
-    (void)user_arg;
     const int callbackId = g_nextHandle.fetch_add(1, std::memory_order_relaxed);
+    {
+        std::lock_guard lock(g_pushCallbackMutex);
+        EnsureBridgePushHandler();
+        PushCallbackRegistration reg;
+        reg.callbackId = callbackId;
+        reg.userContextId = user_context_id;
+        reg.filterId = filter_id;
+        reg.callback = callback;
+        reg.userArg = user_arg;
+        g_pushCallbacks[callbackId] = std::move(reg);
+    }
     NetBridgeRecord(WEB_API_LIBRARY, "sceNpWebApi2PushEventRegisterCallback", true, callbackId, [&](NetBridgeJson& in, NetBridgeJson&) {
         in.Int("user_context_id", user_context_id).Int("filter_id", filter_id).Bool("callback_null", callback == nullptr);
     });
@@ -471,6 +575,13 @@ int APS5_VABI sceNpWebApi2PushEventStartPushContextCallback(std::int32_t userCon
 }
 
 int APS5_VABI sceNpWebApi2PushEventUnregisterCallback(std::int32_t userContextId, std::int32_t callbackId) {
+    {
+        std::lock_guard lock(g_pushCallbackMutex);
+        g_pushCallbacks.erase(callbackId);
+    }
+    NetBridgeRecord(WEB_API_LIBRARY, "sceNpWebApi2PushEventUnregisterCallback", true, 0, [&](NetBridgeJson& in, NetBridgeJson&) {
+        in.Int("user_context_id", userContextId).Int("callback_id", callbackId);
+    });
     return 0;
 }
 
