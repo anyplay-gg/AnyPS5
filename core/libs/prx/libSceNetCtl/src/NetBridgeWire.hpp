@@ -22,14 +22,22 @@ constexpr std::uint16_t KindUnsupported = 0x8000;
 constexpr std::uint16_t KindState = 0x0101;
 constexpr std::uint16_t KindFeature = 0x0102;
 constexpr std::uint16_t KindWebRequest = 0x0201;
+constexpr std::uint16_t KindWebReply = 0x8201;
 constexpr std::uint16_t KindPushFilter = 0x0202;
 constexpr std::uint16_t KindPushFilterGone = 0x0203;
+constexpr std::uint16_t KindPushEvent = 0x0204;
 constexpr std::uint16_t KindActivate = 0x0301;
+constexpr std::uint16_t KindActivated = 0x8301;
 constexpr std::uint16_t KindDeactivate = 0x0302;
 constexpr std::uint16_t KindPeer = 0x0303;
 constexpr std::uint16_t KindPeerInfo = 0x0304;
+constexpr std::uint16_t KindPeerInfoReply = 0x8304;
 constexpr std::uint16_t KindBind = 0x0305;
+constexpr std::uint16_t KindBound = 0x8305;
 constexpr std::uint16_t KindUnbind = 0x0306;
+constexpr std::uint16_t KindIntent = 0x0401;
+constexpr std::uint16_t KindInvitationDialog = 0x0402;
+constexpr std::uint16_t KindInvitationDialogReply = 0x8402;
 
 using Pairs = std::vector<std::pair<std::string, std::string>>;
 
@@ -118,6 +126,20 @@ public:
         return pairs;
     }
 
+    std::vector<std::string> ListOfStrings() {
+        std::vector<std::string> items;
+        const std::size_t count = U16();
+        for (std::size_t index = 0; index < count && good; ++index) {
+            std::string item = Str();
+            if (good) items.push_back(std::move(item));
+        }
+        return items;
+    }
+
+    std::uint32_t Addr() {
+        return U32();
+    }
+
 private:
     const std::uint8_t* take(std::size_t size) {
         if (!good || size > remaining) {
@@ -165,7 +187,20 @@ public:
         return U32(static_cast<std::uint32_t>(value));
     }
 
+    Builder& U64(std::uint64_t value) {
+        for (int shift = 0; shift < 64; shift += 8) data.push_back(static_cast<std::uint8_t>(value >> shift));
+        return *this;
+    }
+
+    Builder& Addr(std::uint32_t value) {
+        return U32(value);
+    }
+
     Builder& Raw(const void* bytes, std::size_t size) {
+        if (size > MaxPayload || data.size() + size > MaxPayload) {
+            good = false;
+            return *this;
+        }
         if (size == 0) return *this;
         const auto* begin = static_cast<const std::uint8_t*>(bytes);
         data.insert(data.end(), begin, begin + size);

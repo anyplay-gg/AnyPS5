@@ -31,6 +31,18 @@ if(BUILD_TESTING)
             "PATH=path_list_prepend:$<TARGET_FILE_DIR:libSceNetCtl>")
     endif()
 
+    add_test_executable(bridge_protocol_tests ${CMAKE_CURRENT_SOURCE_DIR}/tests/BridgeProtocol.cpp)
+    target_include_directories(bridge_protocol_tests PRIVATE ${LIBS_INCLUDE_DIR})
+    target_link_libraries(bridge_protocol_tests PRIVATE libSceNetCtl libc)
+    configure_windows_unwind(bridge_protocol_tests)
+    add_test(NAME bridge_protocol COMMAND bridge_protocol_tests)
+    set_tests_properties(bridge_protocol PROPERTIES TIMEOUT 20)
+    if(WIN32)
+        target_link_libraries(bridge_protocol_tests PRIVATE ws2_32)
+        set_tests_properties(bridge_protocol PROPERTIES ENVIRONMENT_MODIFICATION
+            "PATH=path_list_prepend:$<TARGET_FILE_DIR:libSceNetCtl>")
+    endif()
+
     add_test_executable(net_bridge_off_tests ${CMAKE_CURRENT_SOURCE_DIR}/tests/NetBridgeOff.cpp)
     target_include_directories(net_bridge_off_tests PRIVATE ${LIBS_INCLUDE_DIR})
     target_link_libraries(net_bridge_off_tests PRIVATE libSceNetCtl libc)
