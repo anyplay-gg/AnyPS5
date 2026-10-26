@@ -1242,9 +1242,9 @@ int APS5_VABI sceSslGetFingerprint(int sslCtxId, void* sslCert, int hashType, un
 
 int APS5_VABI sceSslGetPem(int sslCtxId, void* sslCert, char* buf, std::size_t* bufLen) {
     NetBridgeCall netCall("libSceSsl", __func__, [&](NetBridgeJson& netIn) { netIn.Int("ssl_ctx_id", sslCtxId); });
-    if (!sslCert || !bufLen) return ErrorInvalidValue;
+    if (!sslCert || !bufLen) return netCall.Ret(ErrorInvalidValue);
     std::lock_guard lock(State().mutex);
-    if (!State().contexts.contains(sslCtxId)) return ErrorInvalidId;
+    if (!State().contexts.contains(sslCtxId)) return netCall.Ret(ErrorInvalidId);
     const auto* crt = RequireCertificate(__func__, sslCtxId, sslCert);
     const std::size_t encodedLength = Add(crt->raw.len, 2) / 3 * 4;
     const std::size_t lineCount = Add(encodedLength, 63) / 64;
@@ -1252,8 +1252,8 @@ int APS5_VABI sceSslGetPem(int sslCtxId, void* sslCert, char* buf, std::size_t* 
     const std::size_t capacity = *bufLen;
     if (buf && capacity != 0) std::memset(buf, 0, capacity);
     *bufLen = required;
-    if (!buf) return 0;
-    if (capacity < required) return static_cast<int>(0x8095f008);
+    if (!buf) return netCall.Ret(0);
+    if (capacity < required) return netCall.Ret(static_cast<int>(0x8095f008));
     constexpr char header[] = "-----BEGIN CERTIFICATE-----\r\n";
     constexpr char footer[] = "-----END CERTIFICATE-----\r\n";
     std::memcpy(buf, header, sizeof(header) - 1);
@@ -1266,7 +1266,7 @@ int APS5_VABI sceSslGetPem(int sslCtxId, void* sslCert, char* buf, std::size_t* 
         buf[offset++] = '\n';
     }
     std::memcpy(buf + offset, footer, sizeof(footer));
-    return 0;
+    return netCall.Ret(0);
 }
 
 void* APS5_VABI sceSslGetSubjectName(int sslCtxId, void* sslCert) {
