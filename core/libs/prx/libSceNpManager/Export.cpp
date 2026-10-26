@@ -9,6 +9,7 @@
 #include <atomic>
 #include <cstring>
 #include <mutex>
+#include <unordered_map>
 #include <unordered_set>
 
 // PSN is not emulated: the user is reported as signed out and online queries fail.
@@ -38,6 +39,7 @@ void* reachabilityUserdata = nullptr;
 std::uint32_t deliveredReachability = NP_REACHABILITY_STATE_UNAVAILABLE;
 std::mutex requestMutex;
 std::unordered_set<int> liveRequests;
+std::unordered_map<int, int> requestResults;
 
 bool BridgeSignedIn(int userId, NetBridgeStateView& view) {
     if (userId != USER_SERVICE_INITIAL_USER_ID || NetBridgeEnabled_nid_no_patch() == 0) return false;
@@ -53,6 +55,36 @@ void FillOnlineId(NpOnlineId& onlineId, const NetBridgeStateView& view) {
 void FillNpId(NpId& npId, const NetBridgeStateView& view) {
     std::memset(&npId, 0, sizeof(npId));
     FillOnlineId(npId.online_id, view);
+}
+
+int GrantOnline(const char* fn, int reqId, bool argumentsValid, std::uint8_t* result, std::size_t resultSize) {
+    NetBridgeStateView view{};
+    bool signedIn = false;
+    if (NetBridgeEnabled_nid_no_patch() != 0) {
+        NetBridgeState_nid_no_patch(&view);
+        signedIn = view.signedIn != 0;
+    }
+    int ret = SCE_NP_ERROR_SIGNED_OUT;
+    if (signedIn && !argumentsValid) {
+        ret = SCE_NP_ERROR_INVALID_ARGUMENT;
+    } else if (signedIn) {
+        std::lock_guard lock(requestMutex);
+        if (!liveRequests.count(reqId)) {
+            ret = SCE_NP_ERROR_REQUEST_NOT_FOUND;
+        } else {
+            requestResults[reqId] = 0;
+            if (result != nullptr && resultSize > 0) {
+                std::memset(result, 0, resultSize);
+                result[0] = 1;
+            }
+            ret = 0;
+        }
+    }
+    NetBridgeRecord(NP_LIBRARY, fn, true, ret, [&](NetBridgeJson& in, NetBridgeJson& out) {
+        in.Int("req_id", reqId);
+        if (ret == 0) out.Bool("authorized", true);
+    });
+    return ret;
 }
 
 int AddRequest() {
@@ -926,6 +958,9 @@ int APS5_VABI sceNpCheckNpReachability(int req_id, int user_id) {
 }
 
 int APS5_VABI sceNpCheckPremium(int req_id, const NpCheckPremiumParameter* param, NpCheckPremiumResult* result) {
+    if (NetBridgeEnabled_nid_no_patch() != 0) {
+        return GrantOnline("sceNpCheckPremium", req_id, req_id != 0 && param != nullptr && result != nullptr, result != nullptr ? result->opaque : nullptr, sizeof(result->opaque));
+    }
     (void)param;
     (void)result;
     NetBridgeRecord(NP_LIBRARY, "sceNpCheckPremium", true, SCE_NP_ERROR_SIGNED_OUT, [&](NetBridgeJson& in, NetBridgeJson&) { in.Int("req_id", req_id); });
@@ -948,6 +983,7 @@ int APS5_VABI sceNpDeleteRequest(int req_id) {
     std::lock_guard lock(requestMutex);
     if (!liveRequests.count(req_id)) return netCall.Ret(SCE_NP_ERROR_REQUEST_NOT_FOUND);
     liveRequests.erase(req_id);
+    requestResults.erase(req_id);
     return netCall.Ret(0);
 }
 
@@ -993,6 +1029,7 @@ int APS5_VABI sceNpGetUserIdByOnlineId(const NpOnlineId* online_id, int* user_id
 
 int APS5_VABI sceNpCheckPlus(int req_id, const void* param, void* result) {
     if (req_id == 0 || !param || !result) return SCE_NP_ERROR_INVALID_ARGUMENT;
+    if (NetBridgeEnabled_nid_no_patch() != 0) return GrantOnline("sceNpCheckPlus", req_id, true, static_cast<std::uint8_t*>(result), 1);
     NetBridgeRecord(NP_LIBRARY, "sceNpCheckPlus", true, SCE_NP_ERROR_SIGNED_OUT, [&](NetBridgeJson& in, NetBridgeJson&) { in.Int("req_id", req_id); });
     return SCE_NP_ERROR_SIGNED_OUT;
 }
@@ -1109,9 +1146,14 @@ int APS5_VABI sceNpHasSignedUp(int user_id, bool* has_signed_up) {
 
 int APS5_VABI sceNpPollAsync(int req_id, int* result) {
     if (!result) return SCE_NP_ERROR_INVALID_ARGUMENT;
-    std::lock_guard lock(requestMutex);
-    if (!liveRequests.count(req_id)) return SCE_NP_ERROR_REQUEST_NOT_FOUND;
-    *result = SCE_NP_ERROR_SIGNED_OUT;
+    int value = SCE_NP_ERROR_SIGNED_OUT;
+    {
+        std::lock_guard lock(requestMutex);
+        if (!liveRequests.count(req_id)) return SCE_NP_ERROR_REQUEST_NOT_FOUND;
+        const auto found = requestResults.find(req_id);
+        if (found != requestResults.end()) value = found->second;
+    }
+    *result = value;
     NetBridgeRecord(NP_LIBRARY, "sceNpPollAsync", true, NP_POLL_ASYNC_FINISHED, [&](NetBridgeJson& in, NetBridgeJson& out) {
         in.Int("req_id", req_id);
         out.Int("result", *result);
