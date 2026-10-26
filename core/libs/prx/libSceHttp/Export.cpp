@@ -480,7 +480,7 @@ int APS5_VABI sceHttpWaitRequest(HttpEpollHandle eh, HttpNBEvent* nbev, int maxe
         const auto deadline = std::chrono::steady_clock::now() + std::chrono::microseconds(timeout);
         while (!woken() && std::chrono::steady_clock::now() < deadline) epoll->wake.WaitUntil(lock, deadline);
     }
-    return epoll->aborted ? ERROR_ABORTED : 0;
+    return netCall.Ret(epoll->aborted ? ERROR_ABORTED : 0);
 }
 
 int APS5_VABI sceHttpCreateRequestWithURL(int conn_id, int method, const char* url, uint64_t content_length) {
@@ -536,8 +536,8 @@ int APS5_VABI sceHttpParseResponseHeader(const char* header, std::size_t headerL
     constexpr int invalidResponse = static_cast<int>(0x80432060);
     constexpr int invalidValue = static_cast<int>(0x804321FE);
     constexpr int notFound = static_cast<int>(0x80432025);
-    if (!header) return invalidResponse;
-    if (!fieldStr || !fieldValue || !valueLen) return invalidValue;
+    if (!header) return netCall.Ret(invalidResponse);
+    if (!fieldStr || !fieldValue || !valueLen) return netCall.Ret(invalidValue);
 
     std::size_t fieldLen = 0;
     while (fieldLen < 0xfff && fieldStr[fieldLen] != '\0') ++fieldLen;
@@ -560,7 +560,7 @@ int APS5_VABI sceHttpParseResponseHeader(const char* header, std::size_t headerL
         if (newline == std::string_view::npos) break;
         start = newline + 1;
     }
-    if (!found) return notFound;
+    if (!found) return netCall.Ret(notFound);
 
     const auto continues = [&input, headerLen](std::size_t next) { return next < headerLen && (input[next] == ' ' || input[next] == '\t'); };
     const auto empty = [fieldValue, valueLen] {
@@ -579,7 +579,7 @@ int APS5_VABI sceHttpParseResponseHeader(const char* header, std::size_t headerL
             break;
         }
     }
-    if (start == headerLen) return empty();
+    if (start == headerLen) return netCall.Ret(empty());
     std::size_t end = headerLen;
     std::size_t scan = start;
     while (scan < headerLen) {
@@ -597,7 +597,7 @@ int APS5_VABI sceHttpParseResponseHeader(const char* header, std::size_t headerL
     }
     *fieldValue = header + start;
     *valueLen = end - start;
-    return static_cast<int>(end);
+    return netCall.Ret(static_cast<int>(end));
 }
 
 int APS5_VABI sceHttpCreateRequest2(int conn_id, const char* method, const char* path, uint64_t content_length) {

@@ -19,6 +19,7 @@ static constexpr int SCE_NP_ERROR_CALLBACK_ALREADY_REGISTERED = static_cast<int>
 static constexpr int SCE_NP_ERROR_CALLBACK_NOT_REGISTERED = static_cast<int>(0x80550009);
 static constexpr int SCE_NP_ERROR_INVALID_SIZE = static_cast<int>(0x80550011);
 static constexpr int SCE_NP_ERROR_REQUEST_NOT_FOUND = static_cast<int>(0x80550014);
+static constexpr int SCE_NP_ERROR_INVALID_ID = static_cast<int>(0x80550015);
 static constexpr int SCE_NP_ERROR_CALLBACK_MAX = static_cast<int>(0x8055001D);
 static constexpr uint32_t NP_STATE_SIGNED_OUT = 1;
 static constexpr uint32_t NP_STATE_SIGNED_IN = 2;
@@ -945,7 +946,7 @@ int APS5_VABI sceNpCreateRequest(void) {
 int APS5_VABI sceNpDeleteRequest(int req_id) {
     NetBridgeCall netCall("libSceNpManager", __func__, [&](NetBridgeJson& netIn) { netIn.Int("req_id", req_id); });
     std::lock_guard lock(requestMutex);
-    if (!liveRequests.count(req_id)) return SCE_NP_ERROR_REQUEST_NOT_FOUND;
+    if (!liveRequests.count(req_id)) return netCall.Ret(SCE_NP_ERROR_REQUEST_NOT_FOUND);
     liveRequests.erase(req_id);
     return netCall.Ret(0);
 }
@@ -1197,7 +1198,7 @@ int APS5_VABI sceNpSetTimeout(int reqId, int32_t resolveRetry, uint32_t resolveT
     constexpr uint32_t minResolveTimeout = 1000000;
     constexpr uint32_t minTransferTimeout = 10000000;
     auto belowMinimum = [](uint32_t timeout, uint32_t minimum) { return timeout != 0 && timeout < minimum; };
-    if (reqId <= 0 || resolveRetry < 0) return SCE_NP_ERROR_INVALID_ARGUMENT;
+    if (reqId <= 0 || resolveRetry < 0) return netCall.Ret(SCE_NP_ERROR_INVALID_ARGUMENT);
     if (resolveRetry == 0 && resolveTimeout == 0 && connTimeout == 0 && sendTimeout == 0 && recvTimeout == 0) {
         return SCE_NP_ERROR_INVALID_ARGUMENT;
     }
@@ -1206,7 +1207,7 @@ int APS5_VABI sceNpSetTimeout(int reqId, int32_t resolveRetry, uint32_t resolveT
         return SCE_NP_ERROR_INVALID_ARGUMENT;
     }
     std::lock_guard lock(requestMutex);
-    return liveRequests.count(reqId) ? 0 : SCE_NP_ERROR_REQUEST_NOT_FOUND;
+    return netCall.Ret(liveRequests.count(reqId) ? 0 : SCE_NP_ERROR_REQUEST_NOT_FOUND);
 }
 
 int APS5_VABI sceNpUnregisterStateCallback(void) {
@@ -1248,7 +1249,7 @@ int APS5_VABI sceNpRegisterStateCallbackA(NpStateCallbackA callback, void* userd
 
 int APS5_VABI sceNpUnregisterStateCallbackA(int callbackId) {
     NetBridgeCall netCall("libSceNpManager", __func__, [&](NetBridgeJson& netIn) { netIn.Int("callback_id", callbackId); });
-    if (callbackId < 1 || callbackId > NP_STATE_CALLBACK_MAX) return netCall.Ret(SCE_NP_ERROR_INVALID_ARGUMENT);
+    if (static_cast<uint32_t>(callbackId) - 1u >= static_cast<uint32_t>(NP_STATE_CALLBACK_MAX)) return netCall.Ret(SCE_NP_ERROR_INVALID_ID);
     std::lock_guard lock(stateMutex);
     auto& entry = stateCallbacksA[callbackId - 1];
     if (!entry.callback) return netCall.Ret(SCE_NP_ERROR_CALLBACK_NOT_REGISTERED);
