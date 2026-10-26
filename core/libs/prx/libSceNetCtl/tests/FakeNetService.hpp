@@ -393,6 +393,35 @@ public:
         return received;
     }
 
+    struct ReceivedFrame {
+        std::uint16_t kind = 0;
+        std::uint32_t request = 0;
+        Bytes payload;
+    };
+
+    std::vector<ReceivedFrame> ReceivedFrames() {
+        std::lock_guard lock(mutex);
+        return receivedFrames;
+    }
+
+    Bytes LastPayload(std::uint16_t kind) {
+        std::lock_guard lock(mutex);
+        for (auto it = receivedFrames.rbegin(); it != receivedFrames.rend(); ++it) {
+            if (it->kind == kind) return it->payload;
+        }
+        return {};
+    }
+
+    void SetNextPeerInfoReply(const Bytes& reply) {
+        std::lock_guard lock(mutex);
+        nextPeerInfoReply = reply;
+    }
+
+    void SetNextWebReply(const Bytes& reply) {
+        std::lock_guard lock(mutex);
+        nextWebReply = reply;
+    }
+
     void SetState(bool signedIn, std::uint64_t account, const std::string& handle, std::uint8_t natType, const std::uint8_t (&address)[4]) {
         Bytes payload;
         payload.push_back(signedIn ? 1 : 0);
@@ -510,6 +539,10 @@ private:
         std::uint32_t request = 0;
         Bytes payload;
         if (!readFrame(handle, kind, request, payload)) return;
+        {
+            std::lock_guard lock(mutex);
+            receivedFrames.push_back(ReceivedFrame{kind, request, payload});
+        }
         const bool helloOk = kind == 0x0001 && request == 0 && payload.size() == 2 + token.size() && payload[0] == 0 && payload[1] == 0 &&
             std::equal(token.begin(), token.end(), payload.begin() + 2);
         if (!helloOk) {
@@ -537,6 +570,10 @@ private:
         }
         std::vector<std::pair<std::uint32_t, Bytes>> held;
         while (readFrame(handle, kind, request, payload)) {
+            {
+                std::lock_guard lock(mutex);
+                receivedFrames.push_back(ReceivedFrame{kind, request, payload});
+            }
             if (kind == 0x0201 && request != 0) {
                 answerWeb(request, payload, held);
             } else if (kind == 0x0102) {
@@ -588,9 +625,18 @@ private:
                 const auto address = static_cast<std::uint32_t>(cursor.Number(4));
                 if (!cursor.Ok()) malformed.fetch_add(1);
                 Bytes reply;
-                reply.push_back(address == KnownPeer ? 1 : 0);
-                Put32(reply, address == KnownPeer ? 1234u : 0u);
-                reply.push_back(address == KnownPeer ? 1 : 0);
+                {
+                    std::lock_guard lock(mutex);
+                    if (!nextPeerInfoReply.empty()) {
+                        reply = std::move(nextPeerInfoReply);
+                        nextPeerInfoReply.clear();
+                    }
+                }
+                if (reply.empty()) {
+                    reply.push_back(address == KnownPeer ? 1 : 0);
+                    Put32(reply, address == KnownPeer ? 1234u : 0u);
+                    reply.push_back(address == KnownPeer ? 1 : 0);
+                }
                 sendToClient(MakeFrame(0x8304, request, reply));
             } else if (kind == 0x0305 && request != 0) {
                 Cursor cursor(payload);
@@ -707,21 +753,30 @@ private:
             return;
         }
         Bytes reply;
-        if (call.path == "/offline") {
-            Put16(reply, 0);
-            Put16(reply, 0);
-            PutBlob(reply, {});
-        } else {
-            Put16(reply, 200);
-            Put16(reply, 2);
-            PutText(reply, "content-type");
-            PutText(reply, "text/plain");
-            PutText(reply, "x-path");
-            PutText(reply, call.path);
-            std::string echo = "echo:" + call.method + ":" + call.path + ":";
-            Bytes body(echo.begin(), echo.end());
-            body.insert(body.end(), call.body.begin(), call.body.end());
-            PutBlob(reply, body);
+        {
+            std::lock_guard lock(mutex);
+            if (!nextWebReply.empty()) {
+                reply = std::move(nextWebReply);
+                nextWebReply.clear();
+            }
+        }
+        if (reply.empty()) {
+            if (call.path == "/offline") {
+                Put16(reply, 0);
+                Put16(reply, 0);
+                PutBlob(reply, {});
+            } else {
+                Put16(reply, 200);
+                Put16(reply, 2);
+                PutText(reply, "content-type");
+                PutText(reply, "text/plain");
+                PutText(reply, "x-path");
+                PutText(reply, call.path);
+                std::string echo = "echo:" + call.method + ":" + call.path + ":";
+                Bytes body(echo.begin(), echo.end());
+                body.insert(body.end(), call.body.begin(), call.body.end());
+                PutBlob(reply, body);
+            }
         }
         {
             std::lock_guard lock(mutex);
@@ -766,6 +821,9 @@ private:
     std::vector<std::pair<std::uint16_t, std::uint8_t>> unbinds;
     std::vector<Datagram> received;
     std::vector<StreamCall> streamCalls;
+    std::vector<ReceivedFrame> receivedFrames;
+    Bytes nextPeerInfoReply;
+    Bytes nextWebReply;
 };
 
 inline void SetEnvironment(const char* name, const std::string& value) {
