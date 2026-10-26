@@ -138,7 +138,10 @@ constexpr int NET_SOCK_RAW = 3;
 constexpr int NET_SOCK_DGRAM_P2P = 6;
 constexpr int NET_SOCK_STREAM_P2P = 10;
 constexpr std::uint8_t P2P_DATAGRAMS = 1;
+constexpr std::uint8_t P2P_STREAMS = 2;
 constexpr std::size_t P2P_HEADER = 8;
+constexpr std::size_t P2P_STREAM_KEY = 16;
+constexpr int P2P_PREAMBLE_TIMEOUT_MS = 5000;
 constexpr std::size_t P2P_MAX_PAYLOAD = 65507 - P2P_HEADER;
 constexpr int NET_EPOLL_CTL_ADD = 1;
 constexpr int NET_EPOLL_CTL_MOD = 2;
@@ -297,6 +300,9 @@ struct Sock {
     bool p2p = false;
     std::uint16_t p2p_port = 0;
     std::uint16_t vport = 0;
+    bool peer_known = false;
+    std::uint32_t peer_address = 0;
+    std::uint16_t peer_vport = 0;
     int keepalive = 0;
 };
 
@@ -758,10 +764,11 @@ bool parse_ipv4_parts(const char* text, std::uint32_t& address) {
     return true;
 }
 
-int open_p2p_datagram(int family) {
+int open_p2p(int family, int type) {
     if (family != NET_AF_INET) return fail(NET_EAFNOSUPPORT);
     if (!initialize_sockets()) return fail(5);
-    const NativeSocket native = ::socket(AF_INET, SOCK_DGRAM, 0);
+    const bool stream = type == NET_SOCK_STREAM_P2P;
+    const NativeSocket native = ::socket(AF_INET, stream ? SOCK_STREAM : SOCK_DGRAM, 0);
     if (native == INVALID_NATIVE_SOCKET) return fail(native_error());
 #ifdef _WIN32
     u_long nonblocking = 1;
@@ -781,7 +788,7 @@ int open_p2p_datagram(int family) {
     }
     std::shared_ptr<NativeSocketHandle> handle;
     try {
-        handle = std::make_shared<NativeSocketHandle>(native, false);
+        handle = std::make_shared<NativeSocketHandle>(native, stream);
     } catch (const std::bad_alloc&) {
         close_socket(native);
         return fail(12);
@@ -791,11 +798,130 @@ int open_p2p_datagram(int family) {
     std::lock_guard lk(g_mutex);
     Sock s;
     s.family = family;
-    s.type = NET_SOCK_DGRAM_P2P;
+    s.type = type;
     s.native = std::move(handle);
     s.p2p = true;
     g_socks[fd] = s;
     return fd;
+}
+
+bool wait_native(NativeSocket native, bool send, int milliseconds) {
+#ifdef _WIN32
+    WSAPOLLFD descriptor{};
+    descriptor.fd = native;
+    descriptor.events = send ? POLLWRNORM : POLLRDNORM;
+    return WSAPoll(&descriptor, 1, milliseconds) > 0;
+#else
+    pollfd descriptor{};
+    descriptor.fd = native;
+    descriptor.events = send ? POLLOUT : POLLIN;
+    return ::poll(&descriptor, 1, milliseconds) > 0;
+#endif
+}
+
+bool would_block() {
+#ifdef _WIN32
+    return WSAGetLastError() == WSAEWOULDBLOCK;
+#else
+    return errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR;
+#endif
+}
+
+bool connect_pending() {
+#ifdef _WIN32
+    return WSAGetLastError() == WSAEWOULDBLOCK;
+#else
+    return errno == EINPROGRESS;
+#endif
+}
+
+int remaining_ms(std::chrono::steady_clock::time_point deadline) {
+    const auto left = std::chrono::ceil<std::chrono::milliseconds>(deadline - std::chrono::steady_clock::now()).count();
+    return left > 0 ? static_cast<int>(left) : 0;
+}
+
+bool send_preamble(NativeSocket native, const std::uint8_t* data, std::size_t size) {
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(P2P_PREAMBLE_TIMEOUT_MS);
+    while (size > 0) {
+        const int left = remaining_ms(deadline);
+        if (left == 0 || !wait_native(native, true, left)) return false;
+        const auto sent = ::send(native, reinterpret_cast<const char*>(data), static_cast<int>(size), NATIVE_SEND_FLAGS);
+        if (sent > 0) {
+            data += sent;
+            size -= static_cast<std::size_t>(sent);
+        } else if (sent == 0 || !would_block()) {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool receive_preamble(NativeSocket native, std::uint8_t* data, std::size_t size) {
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(P2P_PREAMBLE_TIMEOUT_MS);
+    while (size > 0) {
+        const int left = remaining_ms(deadline);
+        if (left == 0 || !wait_native(native, false, left)) return false;
+        const auto got = ::recv(native, reinterpret_cast<char*>(data), static_cast<int>(size), 0);
+        if (got > 0) {
+            data += got;
+            size -= static_cast<std::size_t>(got);
+        } else if (got == 0 || !would_block()) {
+            return false;
+        }
+    }
+    return true;
+}
+
+int listen_p2p(int s, const Sock& socket, int backlog) {
+    if (!socket.bound) NotImplemented_nid_no_patch("sceNetListen on an unbound peer-to-peer stream socket");
+    if (::listen(socket.native->value, backlog) != 0) return fail(native_error());
+    sockaddr_in local{};
+    NativeLength local_length = sizeof(local);
+    if (::getsockname(socket.native->value, reinterpret_cast<sockaddr*>(&local), &local_length) != 0) return fail(native_error());
+    const int result = NetBridgeBind_nid_no_patch(socket.vport, P2P_STREAMS, ntohs(local.sin_port));
+    if (result == 1) return fail(NET_EADDRINUSE);
+    if (result != 0) return fail(NET_ENETUNREACH);
+    std::lock_guard lk(g_mutex);
+    auto it = g_socks.find(s);
+    if (it != g_socks.end()) it->second.listening = true;
+    return 0;
+}
+
+int connect_p2p(int s, const Sock& socket, const void* addr, std::uint32_t addrlen) {
+    if (!socket.bound) NotImplemented_nid_no_patch("sceNetConnect on an unbound peer-to-peer stream socket");
+    if (!addr || addrlen < 16) return fail(NET_EINVAL);
+    const auto* bytes = static_cast<const std::uint8_t*>(addr);
+    if (bytes[1] != NET_AF_INET) return fail(NET_EAFNOSUPPORT);
+    NetBridgeTrafficView traffic{};
+    if (NetBridgeTraffic_nid_no_patch(&traffic) == 0 || traffic.tcpPort == 0) return fail(NET_ENETUNREACH);
+    sockaddr_in service{};
+    service.sin_family = AF_INET;
+    service.sin_port = htons(traffic.tcpPort);
+    service.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    if (::connect(socket.native->value, reinterpret_cast<const sockaddr*>(&service), sizeof(service)) != 0) {
+        if (!connect_pending()) return fail(native_error());
+        if (!wait_native(socket.native->value, true, P2P_PREAMBLE_TIMEOUT_MS)) return fail(NET_ETIMEDOUT);
+        int error = 0;
+        NativeLength size = sizeof(error);
+        if (::getsockopt(socket.native->value, SOL_SOCKET, SO_ERROR, reinterpret_cast<char*>(&error), &size) != 0) return fail(native_error());
+        if (error != 0) return fail(net_error(error));
+    }
+    const std::uint32_t peer = load_big32(bytes + 4);
+    const std::uint16_t peer_vport = load_big16(bytes + 8);
+    std::uint8_t preamble[P2P_STREAM_KEY + P2P_HEADER];
+    std::memcpy(preamble, traffic.streamKey, P2P_STREAM_KEY);
+    store_little32(preamble + P2P_STREAM_KEY, peer);
+    store_little16(preamble + P2P_STREAM_KEY + 4, peer_vport);
+    store_little16(preamble + P2P_STREAM_KEY + 6, socket.vport);
+    if (!send_preamble(socket.native->value, preamble, sizeof(preamble))) return fail(NET_ECONNABORTED);
+    std::lock_guard lk(g_mutex);
+    auto it = g_socks.find(s);
+    if (it != g_socks.end()) {
+        it->second.peer_known = true;
+        it->second.peer_address = peer;
+        it->second.peer_vport = peer_vport;
+    }
+    return 0;
 }
 
 int bind_p2p(int s, const Sock& socket, const void* addr, std::uint32_t addrlen) {
@@ -806,12 +932,14 @@ int bind_p2p(int s, const Sock& socket, const void* addr, std::uint32_t addrlen)
     if (vport == 0) NotImplemented_nid_no_patch("sceNetBind of a peer-to-peer socket to virtual port 0");
     std::uint16_t port = 0;
     std::memcpy(&port, bytes + 2, 2);
-    sockaddr_in local{};
-    NativeLength local_length = sizeof(local);
-    if (::getsockname(socket.native->value, reinterpret_cast<sockaddr*>(&local), &local_length) != 0) return fail(native_error());
-    const int result = NetBridgeBind_nid_no_patch(vport, P2P_DATAGRAMS, ntohs(local.sin_port));
-    if (result == 1) return fail(NET_EADDRINUSE);
-    if (result != 0) return fail(NET_ENETUNREACH);
+    if (socket.type == NET_SOCK_DGRAM_P2P) {
+        sockaddr_in local{};
+        NativeLength local_length = sizeof(local);
+        if (::getsockname(socket.native->value, reinterpret_cast<sockaddr*>(&local), &local_length) != 0) return fail(native_error());
+        const int result = NetBridgeBind_nid_no_patch(vport, P2P_DATAGRAMS, ntohs(local.sin_port));
+        if (result == 1) return fail(NET_EADDRINUSE);
+        if (result != 0) return fail(NET_ENETUNREACH);
+    }
     std::lock_guard lk(g_mutex);
     auto it = g_socks.find(s);
     if (it != g_socks.end()) {
@@ -1088,10 +1216,7 @@ int APS5_VABI sceNetSocket(const char* name, int family, int type, int protocol)
     if (family != NET_AF_INET && family != NET_AF_INET6) {
         return netCall.Ret(fail(NET_EAFNOSUPPORT));
     }
-    if ((type == NET_SOCK_DGRAM_P2P || type == NET_SOCK_STREAM_P2P) && NetBridgeEnabled_nid_no_patch() != 0) {
-        if (type == NET_SOCK_STREAM_P2P) NotImplemented_nid_no_patch("sceNetSocket of SCE_NET_SOCK_STREAM_P2P over the net bridge");
-        return open_p2p_datagram(family);
-    }
+    if ((type == NET_SOCK_DGRAM_P2P || type == NET_SOCK_STREAM_P2P) && NetBridgeEnabled_nid_no_patch() != 0) return open_p2p(family, type);
     if (type != NET_SOCK_STREAM && type != NET_SOCK_DGRAM && type != NET_SOCK_RAW) {
         return netCall.Ret(fail(NET_EPROTONOSUPPORT));
     }
@@ -1140,13 +1265,16 @@ int APS5_VABI sceNetSocketClose(int s) {
     bool found = false;
     bool unbind = false;
     std::uint16_t vport = 0;
+    std::uint8_t transport = P2P_DATAGRAMS;
     {
         std::lock_guard lk(g_mutex);
         const auto it = g_socks.find(s);
         if (it != g_socks.end()) {
             native = it->second.native;
-            unbind = it->second.p2p && it->second.bound;
+            const bool stream = it->second.type == NET_SOCK_STREAM_P2P;
+            unbind = it->second.p2p && (stream ? it->second.listening : it->second.bound);
             vport = it->second.vport;
+            transport = stream ? P2P_STREAMS : P2P_DATAGRAMS;
             g_socks.erase(it);
             for (auto& epoll : g_epoll_socks) epoll.second.erase(s);
             found = true;
@@ -1157,7 +1285,7 @@ int APS5_VABI sceNetSocketClose(int s) {
         return netCall.Ret(close_nid_postfix(s) == 0 ? 0 : fail(*__error_nid_postfix()));
     }
     KernelReleaseSocketNumber_nid_no_patch(s);
-    if (unbind) NetBridgeUnbind_nid_no_patch(vport, P2P_DATAGRAMS);
+    if (unbind) NetBridgeUnbind_nid_no_patch(vport, transport);
     if (native) {
 #ifdef _WIN32
         ::shutdown(native->value, SD_BOTH);
@@ -1222,6 +1350,7 @@ int APS5_VABI sceNetListen(int s, int backlog) {
         if (it == g_socks.end()) return netCall.Ret(fail(NET_EBADF));
         socket = it->second;
     }
+    if (socket.p2p && socket.type == NET_SOCK_STREAM_P2P) return netCall.Ret(listen_p2p(s, socket, backlog));
     if (socket.type != NET_SOCK_STREAM) return netCall.Ret(fail(NET_EOPNOTSUPP));
     if (::listen(socket.native->value, backlog) != 0) return netCall.Ret(fail(native_error()));
     std::lock_guard lk(g_mutex);
@@ -1252,6 +1381,16 @@ int APS5_VABI sceNetAccept(int s, void* addr, uint32_t* addrlen) {
             addr ? reinterpret_cast<sockaddr*>(&peer) : nullptr, addr ? &peer_length : nullptr);
     }, false);
     if (accepted == INVALID_NATIVE_SOCKET) return netCall.Ret(fail(native_error()));
+    std::uint8_t preamble[P2P_STREAM_KEY + P2P_HEADER]{};
+    if (listener.p2p) {
+        NetBridgeTrafficView traffic{};
+        const bool offered = NetBridgeTraffic_nid_no_patch(&traffic) != 0;
+        if (!offered || !receive_preamble(accepted, preamble, sizeof(preamble)) || std::memcmp(preamble, traffic.streamKey, P2P_STREAM_KEY) != 0 ||
+            load_little16(preamble + P2P_STREAM_KEY + 4) != listener.vport) {
+            close_socket(accepted);
+            return netCall.Ret(fail(NET_ECONNABORTED));
+        }
+    }
     std::shared_ptr<NativeSocketHandle> handle;
     try {
         handle = std::make_shared<NativeSocketHandle>(accepted, true);
@@ -1261,10 +1400,19 @@ int APS5_VABI sceNetAccept(int s, void* addr, uint32_t* addrlen) {
     }
     Sock connection;
     connection.family = listener.family;
-    connection.type = NET_SOCK_STREAM;
+    connection.type = listener.p2p ? NET_SOCK_STREAM_P2P : NET_SOCK_STREAM;
     connection.protocol = listener.protocol;
     connection.connectAttempted = true;
     connection.native = std::move(handle);
+    if (listener.p2p) {
+        connection.p2p = true;
+        connection.bound = true;
+        connection.p2p_port = listener.p2p_port;
+        connection.vport = listener.vport;
+        connection.peer_known = true;
+        connection.peer_address = load_little32(preamble + P2P_STREAM_KEY);
+        connection.peer_vport = load_little16(preamble + P2P_STREAM_KEY + 6);
+    }
 #ifdef _WIN32
     connection.native->receiveTimeout = listener.native->receiveTimeout.load();
     connection.native->sendTimeout = listener.native->sendTimeout.load();
@@ -1282,6 +1430,14 @@ int APS5_VABI sceNetAccept(int s, void* addr, uint32_t* addrlen) {
             sceNetSocketClose(descriptor);
             return fail(error);
         }
+    }
+    if (addr && connection.p2p) {
+        std::uint8_t bytes[16];
+        p2p_guest_address(bytes, connection.p2p_port, connection.peer_address, connection.peer_vport);
+        const auto copied = std::min<std::uint32_t>(*addrlen, sizeof(bytes));
+        std::memcpy(addr, bytes, copied);
+        *addrlen = copied;
+        return descriptor;
     }
     if (addr && !native_to_guest_address(peer, addr, addrlen)) {
         sceNetSocketClose(descriptor);
@@ -1336,7 +1492,8 @@ int APS5_VABI sceNetConnect(int s, const void* addr, uint32_t addrlen) {
         it->second.reported_error = 0;
         socket = it->second;
     }
-    if (socket.p2p) NotImplemented_nid_no_patch("sceNetConnect on a peer-to-peer socket");
+    if (socket.p2p && socket.type == NET_SOCK_STREAM_P2P) return connect_p2p(s, socket, addr, addrlen);
+    if (socket.p2p) NotImplemented_nid_no_patch("sceNetConnect on a peer-to-peer datagram socket");
     if (socket.type == NET_SOCK_DGRAM && addr && addrlen >= 2 && static_cast<const std::uint8_t*>(addr)[1] == 0) {
         if (const int error = disconnect_datagram(socket)) return netCall.Ret(error);
         return netCall.Ret(fail(NET_EAFNOSUPPORT));
@@ -1391,7 +1548,7 @@ int64_t APS5_VABI sceNetRecv(int s, void* buf, size_t len, int flags) {
         if (it == g_socks.end()) return fail(NET_EBADF);
         socket = it->second;
     }
-    if (socket.p2p) NotImplemented_nid_no_patch("sceNetRecv on a peer-to-peer socket");
+    if (socket.p2p && socket.type == NET_SOCK_DGRAM_P2P) NotImplemented_nid_no_patch("sceNetRecv on a peer-to-peer datagram socket");
 #if defined(_WIN32) || defined(__APPLE__)
     if (const int wait = wait_for_local_address(s, socket, len == 0, flags)) return wait == RECEIVE_NOTHING ? 0 : fail(wait);
 #endif
@@ -1424,7 +1581,15 @@ int64_t APS5_VABI sceNetRecvfrom(int s, void* buf, size_t len, int flags, void* 
         if (it == g_socks.end()) return fail(NET_EBADF);
         socket = it->second;
     }
-    if (socket.p2p) return receive_p2p(socket, buf, len, flags, from, fromlen);
+    if (socket.p2p && socket.type == NET_SOCK_DGRAM_P2P) return receive_p2p(socket, buf, len, flags, from, fromlen);
+    if (socket.p2p) {
+        if (from) {
+            const GuestArena::HostWrite lengthOnly(fromlen, sizeof(*fromlen));
+            if (!lengthOnly.Open()) return fail(NET_EFAULT);
+            *fromlen = 0;
+        }
+        return sceNetRecv(s, buf, len, flags);
+    }
     const GuestArena::HostWrite lengthOutput(from == nullptr ? nullptr : fromlen, from == nullptr ? 0 : sizeof(*fromlen));
     if (!lengthOutput.Open()) return fail(NET_EFAULT);
 #if defined(_WIN32) || defined(__APPLE__)
@@ -1470,7 +1635,7 @@ int64_t APS5_VABI sceNetSend(int s, const void* buf, size_t len, int flags) {
         if (it == g_socks.end()) return fail(NET_EBADF);
         socket = it->second;
     }
-    if (socket.p2p) NotImplemented_nid_no_patch("sceNetSend on a peer-to-peer socket");
+    if (socket.p2p && socket.type == NET_SOCK_DGRAM_P2P) NotImplemented_nid_no_patch("sceNetSend on a peer-to-peer datagram socket");
     const int result = native_transfer(*socket.native, flags, true, [&](int offset) {
         return ::send(socket.native->value, offset ? static_cast<const char*>(buf) + offset : static_cast<const char*>(buf), static_cast<int>(len) - offset, NATIVE_SEND_FLAGS | native_message_flags(flags));
     }, true, static_cast<int>(len));
@@ -1493,7 +1658,8 @@ int64_t APS5_VABI sceNetSendto(int s, const void* buf, size_t len, int flags, co
         if (it == g_socks.end()) return fail(NET_EBADF);
         socket = it->second;
     }
-    if (socket.p2p) return send_p2p(socket, buf, len, flags, to, tolen);
+    if (socket.p2p && socket.type == NET_SOCK_DGRAM_P2P) return send_p2p(socket, buf, len, flags, to, tolen);
+    if (socket.p2p && to) NotImplemented_nid_no_patch("sceNetSendto with a destination on a peer-to-peer stream socket");
     int result;
     if (!to) {
         if (tolen != 0) return fail(NET_EINVAL);
@@ -1649,7 +1815,7 @@ int APS5_VABI sceNetSetsockopt(int s, int level, int optname, const void* optval
         if (!GuestSocketIsOpen_nid_no_patch(s)) return netCall.Ret(fail(NET_EBADF));
         return netCall.Ret(setsockopt_nid_postfix(s, level, optname, optval, optlen) == 0 ? 0 : fail(*__error_nid_postfix()));
     }
-    if (level == NET_IPPROTO_TCP && socket.type != NET_SOCK_STREAM) return netCall.Ret(fail(NET_EINVAL));
+    if (level == NET_IPPROTO_TCP && socket.type != NET_SOCK_STREAM && socket.type != NET_SOCK_STREAM_P2P) return netCall.Ret(fail(NET_EINVAL));
     if (level == NET_IPPROTO_TCP && optname == NET_TCP_NODELAY) {
         if (!optval || optlen < sizeof(int)) return netCall.Ret(fail(NET_EINVAL));
         int value = 0;
@@ -1741,7 +1907,7 @@ int APS5_VABI sceNetGetsockopt(int s, int level, int optname, void* optval, uint
         std::memcpy(optval, &value, *optlen);
         return netCall.Ret(0);
     }
-    if (level == NET_IPPROTO_TCP && socket.type != NET_SOCK_STREAM) return netCall.Ret(fail(NET_EINVAL));
+    if (level == NET_IPPROTO_TCP && socket.type != NET_SOCK_STREAM && socket.type != NET_SOCK_STREAM_P2P) return netCall.Ret(fail(NET_EINVAL));
     if (level == NET_IPPROTO_TCP && optname == NET_TCP_NODELAY) {
         int enabled = 0;
         NativeLength size = sizeof(enabled);
@@ -1837,6 +2003,15 @@ int APS5_VABI sceNetGetpeername(int s, void* addr, uint32_t* addrlen) {
         socket = it->second;
     }
     if (!addr || !addrlen) return netCall.Ret(fail(NET_EINVAL));
+    if (socket.p2p) {
+        if (!socket.peer_known) return netCall.Ret(fail(NET_ENOTCONN));
+        std::uint8_t bytes[16];
+        p2p_guest_address(bytes, socket.p2p_port, socket.peer_address, socket.peer_vport);
+        const auto copied = std::min<std::uint32_t>(*addrlen, sizeof(bytes));
+        std::memcpy(addr, bytes, copied);
+        *addrlen = copied;
+        return netCall.Ret(0);
+    }
     sockaddr_storage native{};
     NativeLength native_length = sizeof(native);
     if (::getpeername(socket.native->value, reinterpret_cast<sockaddr*>(&native), &native_length) != 0)

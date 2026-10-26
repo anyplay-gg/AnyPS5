@@ -208,6 +208,13 @@ struct Datagram {
     Bytes payload;
 };
 
+struct StreamCall {
+    bool keyMatches = false;
+    std::uint32_t address = 0;
+    std::uint16_t vport = 0;
+    std::uint16_t sourceVport = 0;
+};
+
 constexpr std::uint32_t KnownPeer = 0xC6120002u;
 
 class Service {
@@ -237,8 +244,19 @@ public:
         length = sizeof(datagramAddress);
         Require(::getsockname(datagrams, reinterpret_cast<sockaddr*>(&datagramAddress), &length) == 0, "datagram getsockname");
         datagramPort = ntohs(datagramAddress.sin_port);
+        streams = ::socket(AF_INET, SOCK_STREAM, 0);
+        Require(streams != InvalidHandle, "stream socket");
+        sockaddr_in streamAddress{};
+        streamAddress.sin_family = AF_INET;
+        streamAddress.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+        Require(::bind(streams, reinterpret_cast<const sockaddr*>(&streamAddress), sizeof(streamAddress)) == 0, "stream bind");
+        Require(::listen(streams, 4) == 0, "stream listen");
+        length = sizeof(streamAddress);
+        Require(::getsockname(streams, reinterpret_cast<sockaddr*>(&streamAddress), &length) == 0, "stream getsockname");
+        streamPort = ntohs(streamAddress.sin_port);
         worker = std::thread([this] { acceptLoop(); });
         datagramWorker = std::thread([this] { datagramLoop(); });
+        streamWorker = std::thread([this] { streamLoop(); });
     }
 
     Service(const Service&) = delete;
@@ -253,6 +271,52 @@ public:
         ShutdownHandle(datagrams);
         CloseHandleSafe(datagrams);
         if (datagramWorker.joinable()) datagramWorker.join();
+        ShutdownHandle(streams);
+        CloseHandleSafe(streams);
+        {
+            std::lock_guard lock(mutex);
+            for (const Handle handle : echoes) ShutdownHandle(handle);
+        }
+        if (streamWorker.joinable()) streamWorker.join();
+        for (auto& echo : echoThreads) {
+            if (echo.joinable()) echo.join();
+        }
+    }
+
+    Handle OpenStreamTo(std::uint32_t fromAddress, std::uint16_t toVport, std::uint16_t fromVport, bool rightKey = true) {
+        std::uint16_t target = 0;
+        {
+            std::lock_guard lock(mutex);
+            for (const auto& bind : liveBinds) {
+                if (bind.vport == toVport && bind.transport == 2) target = bind.loopbackPort;
+            }
+        }
+        if (target == 0) return InvalidHandle;
+        const Handle handle = ::socket(AF_INET, SOCK_STREAM, 0);
+        if (handle == InvalidHandle) return InvalidHandle;
+        sockaddr_in destination{};
+        destination.sin_family = AF_INET;
+        destination.sin_port = htons(target);
+        destination.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+        if (::connect(handle, reinterpret_cast<const sockaddr*>(&destination), sizeof(destination)) != 0) {
+            CloseHandleSafe(handle);
+            return InvalidHandle;
+        }
+        Bytes preamble;
+        for (int index = 0; index < 16; ++index) preamble.push_back(static_cast<std::uint8_t>(rightKey ? index : 0xEE));
+        Put32(preamble, fromAddress);
+        Put16(preamble, toVport);
+        Put16(preamble, fromVport);
+        if (!WriteExact(handle, preamble)) {
+            CloseHandleSafe(handle);
+            return InvalidHandle;
+        }
+        return handle;
+    }
+
+    std::vector<StreamCall> Streams() {
+        std::lock_guard lock(mutex);
+        return streamCalls;
     }
 
     std::uint16_t Port() const {
@@ -261,6 +325,10 @@ public:
 
     std::uint16_t DatagramPort() const {
         return datagramPort;
+    }
+
+    std::uint16_t StreamPort() const {
+        return streamPort;
     }
 
     void SendPeer(const std::string& session, std::uint64_t account, const std::string& handle, std::uint32_t address, std::uint8_t peerState) {
@@ -454,7 +522,7 @@ private:
         Bytes welcome;
         Put16(welcome, 0);
         Put16(welcome, datagramPort);
-        Put16(welcome, 0);
+        Put16(welcome, streamPort);
         for (int index = 0; index < 16; ++index) welcome.push_back(static_cast<std::uint8_t>(index));
         Bytes state;
         {
@@ -559,6 +627,41 @@ private:
         liveBinds.clear();
     }
 
+    void streamLoop() {
+        while (!stopping.load()) {
+            const Handle accepted = ::accept(streams, nullptr, nullptr);
+            if (accepted == InvalidHandle) {
+                if (stopping.load()) return;
+                std::this_thread::sleep_for(std::chrono::milliseconds(5));
+                continue;
+            }
+            std::uint8_t preamble[24];
+            if (!ReadExact(accepted, preamble, sizeof(preamble))) {
+                CloseHandleSafe(accepted);
+                continue;
+            }
+            const Bytes bytes(preamble, preamble + sizeof(preamble));
+            Cursor cursor(bytes);
+            StreamCall call;
+            call.keyMatches = true;
+            for (int index = 0; index < 16; ++index) call.keyMatches = call.keyMatches && cursor.Number(1) == static_cast<std::uint64_t>(index);
+            call.address = static_cast<std::uint32_t>(cursor.Number(4));
+            call.vport = static_cast<std::uint16_t>(cursor.Number(2));
+            call.sourceVport = static_cast<std::uint16_t>(cursor.Number(2));
+            std::lock_guard lock(mutex);
+            streamCalls.push_back(call);
+            echoes.push_back(accepted);
+            echoThreads.emplace_back([accepted] {
+                std::uint8_t buffer[4096];
+                while (true) {
+                    const auto got = ::recv(accepted, reinterpret_cast<char*>(buffer), sizeof(buffer), 0);
+                    if (got <= 0 || !WriteExact(accepted, Bytes(buffer, buffer + got))) break;
+                }
+                CloseHandleSafe(accepted);
+            });
+        }
+    }
+
     void datagramLoop() {
         std::uint8_t buffer[65536];
         while (!stopping.load()) {
@@ -636,8 +739,13 @@ private:
     std::uint16_t port = 0;
     Handle datagrams = InvalidHandle;
     std::uint16_t datagramPort = 0;
+    Handle streams = InvalidHandle;
+    std::uint16_t streamPort = 0;
     std::thread worker;
     std::thread datagramWorker;
+    std::thread streamWorker;
+    std::vector<Handle> echoes;
+    std::vector<std::thread> echoThreads;
     std::atomic<bool> stopping{false};
     std::atomic<int> hold{1};
     std::atomic<int> welcomed{0};
@@ -657,6 +765,7 @@ private:
     std::vector<BindCall> liveBinds;
     std::vector<std::pair<std::uint16_t, std::uint8_t>> unbinds;
     std::vector<Datagram> received;
+    std::vector<StreamCall> streamCalls;
 };
 
 inline void SetEnvironment(const char* name, const std::string& value) {
