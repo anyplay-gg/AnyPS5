@@ -141,7 +141,7 @@ int main() {
     Require(sceNpCheckPlus(0, plusParameter, plusResult) == InvalidArgument && sceNpCheckPlus(request, nullptr, plusResult) == InvalidArgument, "plus arguments");
     Require(sceNpDeleteRequest(request) == 0, "delete request");
     Require(sceNpCheckPlus(request, plusParameter, plusResult) == RequestNotFound, "plus on a deleted request");
-    Require(sceNpPollAsync(request, &polled) == 0 && polled == SignedOut, "a deleted request polls as today");
+    Require(sceNpPollAsync(request, &polled) == RequestNotFound, "a deleted request is not found");
 
     int dummyFeature = 0;
     Require(sceNpNotifyPlusFeature(&dummyFeature) == 0, "plus feature accepted");
