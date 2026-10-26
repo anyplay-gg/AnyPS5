@@ -103,7 +103,28 @@ int main() {
     const int handle = sceNpWebApi2PushEventCreateHandle(library);
     const int filter = sceNpWebApi2PushEventCreateFilter(library, handle, "np:service", 3, nullptr, 2);
     Require(filter > 0, "push filter");
-    Require(sceNpWebApi2PushEventRegisterCallback(1, filter, nullptr, nullptr) > 0, "push callback registration");
+
+    const int userContext2 = sceNpWebApi2CreateUserContext(library, 55);
+    const int dummyArg = 123;
+    const int callbackId = sceNpWebApi2PushEventRegisterCallback(userContext2, filter, nullptr, (void*)&dummyArg);
+    Require(callbackId > 0, "push callback registration");
+
+    service.SendPushEvent(55, filter, "game:push", 100, 200, {0x11, 0x22, 0x33});
+    Require(Service::WaitUntil([&] {
+        sceNpWebApi2CheckTimeout();
+        const std::string content = ReadFile(observePath);
+        return content.find("\"fn\":\"sceNpWebApi2PushEventDeliver\"") != std::string::npos &&
+               content.find("\"data_type\":\"game:push\"") != std::string::npos &&
+               content.find("\"data_size\":3") != std::string::npos;
+    }, 5000), "push event delivered to observation log");
+
+    Require(sceNpWebApi2PushEventUnregisterCallback(userContext2, callbackId) == 0, "unregister push callback");
+    service.SendPushEvent(55, filter, "game:push2", 100, 200, {0x44});
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    sceNpWebApi2CheckTimeout();
+    const std::string afterUnregister = ReadFile(observePath);
+    Require(afterUnregister.find("\"data_type\":\"game:push2\"") == std::string::npos, "no push delivery after unregister");
+
     Require(sceNpWebApi2PushEventDeleteFilter(library, filter) == 0, "push filter delete");
     Require(Service::WaitUntil([&] { return service.PushFilters().size() == 1 && service.PushGone().size() == 1; }, 5000), "push events reach the service");
     Require(service.PushFilters()[0].filter == static_cast<std::uint32_t>(filter) && service.PushFilters()[0].userId == -1 && service.PushFilters()[0].dataTypes.empty(), "push filter event");

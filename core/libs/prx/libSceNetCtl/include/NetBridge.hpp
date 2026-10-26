@@ -62,6 +62,22 @@ struct NetBridgePeerInfoView {
     std::uint32_t rttUs;
 };
 
+struct NetBridgePushEventView {
+    std::int32_t userId;
+    std::uint32_t filter;
+    const char* dataType;
+    std::uint64_t from;
+    std::uint64_t to;
+    const void* data;
+    std::uint64_t dataSize;
+    std::uint32_t extendedCount;
+    const char* const* extendedNames;
+    const char* const* extendedValues;
+};
+
+using NetBridgePushHandler = void (*)(const NetBridgePushEventView* event, void* userArg);
+using NetBridgePushPump = void (*)(void* userArg);
+
 struct NetBridgeObservation {
     const char* lib;
     const char* fn;
@@ -88,6 +104,11 @@ int NetBridgeBind_nid_no_patch(std::uint16_t vport, std::uint8_t transport, std:
 void NetBridgeUnbind_nid_no_patch(std::uint16_t vport, std::uint8_t transport);
 void NetBridgePushFilter_nid_no_patch(std::int32_t userId, std::uint32_t filter, const char* const* dataTypes, std::uint32_t count);
 void NetBridgePushFilterGone_nid_no_patch(std::int32_t userId, std::uint32_t filter);
+int NetBridgeRegisterPushHandler_nid_no_patch(NetBridgePushHandler handler, void* userArg);
+void NetBridgeUnregisterPushHandler_nid_no_patch(int registrationId);
+int NetBridgeRegisterPushPump_nid_no_patch(NetBridgePushPump pump, void* userArg);
+void NetBridgeUnregisterPushPump_nid_no_patch(int registrationId);
+void NetBridgeDeliverPushEvents_nid_no_patch(void);
 int NetBridgeObserveEnabled_nid_no_patch(void);
 void NetBridgeObserve_nid_no_patch(const NetBridgeObservation* observation);
 void NetBridgeObserveNow_nid_no_patch(const NetBridgeObservation* observation);
