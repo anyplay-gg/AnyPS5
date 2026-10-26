@@ -1,23 +1,13 @@
 #include "prx/libSceNetCtl/include/NetBridge.hpp"
 #include "prx/libSceNetCtl/tests/FakeNetService.hpp"
 #include "prx/libc/include/general/VabiMacros.hpp"
+#include "prx/libSceNet/include/Net.hpp"
 
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
 #include <string>
 #include <vector>
-
-extern "C" {
-int APS5_VABI sceNetSocket(const char*, int, int, int);
-int APS5_VABI sceNetBind_nid_postfix(int, const void*, std::uint32_t);
-int APS5_VABI sceNetGetsockname(int, void*, std::uint32_t*);
-int APS5_VABI sceNetSetsockopt(int, int, int, const void*, std::uint32_t);
-std::int64_t APS5_VABI sceNetSendto(int, const void*, std::size_t, int, const void*, std::uint32_t);
-std::int64_t APS5_VABI sceNetRecvfrom(int, void*, std::size_t, int, void*, std::uint32_t*);
-int APS5_VABI sceNetSocketClose(int);
-int* APS5_VABI sceNetErrnoLoc();
-}
 
 namespace {
 
