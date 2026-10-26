@@ -21,10 +21,13 @@
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
+#include <map>
 #include <memory>
 #include <mutex>
+#include <set>
 #include <string>
 #include <thread>
+#include <tuple>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -47,6 +50,12 @@ constexpr std::size_t MaxTokenBytes = 512;
 constexpr std::size_t MaxPushDataTypes = 1024;
 constexpr auto ReconnectDelay = std::chrono::seconds(2);
 constexpr auto WebTimeout = std::chrono::seconds(30);
+constexpr auto ControlTimeout = std::chrono::seconds(10);
+constexpr std::size_t MaxSessionLength = 1024;
+constexpr std::size_t MaxPeers = 4096;
+constexpr std::uint8_t PeerConnecting = 1;
+constexpr std::uint8_t PeerFailed = 4;
+constexpr std::uint8_t ActivateSignedOut = 2;
 constexpr auto StartupGrace = std::chrono::seconds(2);
 constexpr int HandshakeTimeoutMs = 10000;
 constexpr int SendTimeoutMs = 5000;
@@ -67,6 +76,22 @@ struct BridgeState {
         return signedIn == other.signedIn && accountId == other.accountId && handle == other.handle && natType == other.natType && address == other.address;
     }
 };
+
+struct Traffic {
+    std::uint16_t udpPort = 0;
+    std::uint16_t tcpPort = 0;
+    std::uint8_t streamKey[16]{};
+};
+
+struct Peer {
+    std::uint64_t accountId = 0;
+    std::string handle;
+    std::uint8_t peerState = 0;
+};
+
+using BindKey = std::pair<std::uint16_t, std::uint8_t>;
+using Activation = std::tuple<std::int32_t, std::string, std::uint8_t>;
+using PeerKey = std::pair<std::string, std::uint32_t>;
 
 struct Waiter {
     std::condition_variable done;
@@ -272,9 +297,7 @@ public:
         {
             std::lock_guard lock(mutex);
             if (!connected || waiters.size() >= MaxOpenRequests) return false;
-            do {
-                number = ++lastRequest;
-            } while (number == 0 || waiters.count(number) != 0);
+            number = nextRequestNumber();
             waiters.emplace(number, &waiter);
             connection = generation;
         }
@@ -297,7 +320,147 @@ public:
         send(connection, EncodeFrame(kind, 0, payload));
     }
 
+    bool TrafficPorts(NetBridgeTrafficView* out) {
+        std::lock_guard lock(mutex);
+        if (out != nullptr) {
+            std::memset(out, 0, sizeof(*out));
+            if (connected) {
+                out->udpPort = traffic.udpPort;
+                out->tcpPort = traffic.tcpPort;
+                std::memcpy(out->streamKey, traffic.streamKey, sizeof(out->streamKey));
+            }
+        }
+        return connected;
+    }
+
+    int Activate(std::int32_t userId, const std::string& session, std::uint8_t sessionKind) {
+        if (session.size() > MaxSessionLength) return -1;
+        Builder payload;
+        payload.I32(userId).Str(session).U8(sessionKind);
+        if (!payload.Ok()) return -1;
+        std::vector<std::uint8_t> reply;
+        if (!Request(KindActivate, payload.Take(), ControlTimeout, reply)) return Connected() ? -1 : ActivateSignedOut;
+        Reader reader(reply.data(), reply.size());
+        const std::uint8_t result = reader.U8();
+        if (!reader.Ok()) return -1;
+        if (result == 0) {
+            std::lock_guard lock(mutex);
+            activations.emplace(userId, session, sessionKind);
+        }
+        return result;
+    }
+
+    void Deactivate(std::int32_t userId, const std::string& session) {
+        if (session.size() > MaxSessionLength) return;
+        {
+            std::lock_guard lock(mutex);
+            std::erase_if(activations, [&](const Activation& item) { return std::get<0>(item) == userId && std::get<1>(item) == session; });
+            if (std::erase_if(peers, [&](const auto& item) { return item.first.first == session; }) != 0) ++peerCounter;
+        }
+        Builder payload;
+        payload.I32(userId).Str(session);
+        if (payload.Ok()) Event(KindDeactivate, payload.Take());
+    }
+
+    std::uint32_t Peers(const std::string& session, NetBridgePeerView* out, std::uint32_t capacity, std::uint64_t* changes) {
+        std::lock_guard lock(mutex);
+        if (changes != nullptr) *changes = peerCounter;
+        std::uint32_t count = 0;
+        for (const auto& [key, peer] : peers) {
+            if (key.first != session) continue;
+            if (out != nullptr && count < capacity) {
+                NetBridgePeerView& view = out[count];
+                std::memset(&view, 0, sizeof(view));
+                view.accountId = peer.accountId;
+                std::memcpy(view.handle, peer.handle.data(), peer.handle.size());
+                view.peerState = peer.peerState;
+                view.address = key.second;
+            }
+            ++count;
+        }
+        return count;
+    }
+
+    bool PeerInfo(std::uint32_t address, NetBridgePeerInfoView* out) {
+        Builder payload;
+        payload.U32(address);
+        std::vector<std::uint8_t> reply;
+        if (!Request(KindPeerInfo, payload.Take(), ControlTimeout, reply)) return false;
+        Reader reader(reply.data(), reply.size());
+        const std::uint8_t known = reader.U8();
+        const std::uint32_t rttUs = reader.U32();
+        const std::uint8_t relayed = reader.U8();
+        if (!reader.Ok() || known > 1 || relayed > 1) return false;
+        out->known = known;
+        out->rttUs = rttUs;
+        out->relayed = relayed;
+        return true;
+    }
+
+    int Bind(std::uint16_t vport, std::uint8_t transport, std::uint16_t loopbackPort) {
+        if (!Connected()) {
+            std::lock_guard lock(mutex);
+            binds[BindKey{vport, transport}] = loopbackPort;
+            return 0;
+        }
+        Builder payload;
+        payload.U16(vport).U8(transport).U16(loopbackPort);
+        std::vector<std::uint8_t> reply;
+        if (!Request(KindBind, payload.Take(), ControlTimeout, reply)) return -1;
+        Reader reader(reply.data(), reply.size());
+        const std::uint8_t result = reader.U8();
+        if (!reader.Ok()) return -1;
+        if (result == 0) {
+            std::lock_guard lock(mutex);
+            binds[BindKey{vport, transport}] = loopbackPort;
+        }
+        return result;
+    }
+
+    void Unbind(std::uint16_t vport, std::uint8_t transport) {
+        {
+            std::lock_guard lock(mutex);
+            binds.erase(BindKey{vport, transport});
+        }
+        Builder payload;
+        payload.U16(vport).U8(transport);
+        Event(KindUnbind, payload.Take());
+    }
+
 private:
+    bool Connected() {
+        std::lock_guard lock(mutex);
+        return connected;
+    }
+
+    std::uint32_t nextRequestNumber() {
+        std::uint32_t number = 0;
+        do {
+            number = ++lastRequest;
+        } while (number == 0 || waiters.count(number) != 0);
+        return number;
+    }
+
+    void replay(std::uint64_t connection) {
+        std::vector<std::vector<std::uint8_t>> frames;
+        {
+            std::lock_guard lock(mutex);
+            for (const auto& [key, loopbackPort] : binds) {
+                Builder payload;
+                payload.U16(key.first).U8(key.second).U16(loopbackPort);
+                frames.push_back(EncodeFrame(KindBind, nextRequestNumber(), payload.Take()));
+            }
+            for (const auto& [userId, session, sessionKind] : activations) {
+                Builder payload;
+                payload.I32(userId).Str(session).U8(sessionKind);
+                if (payload.Ok()) frames.push_back(EncodeFrame(KindActivate, nextRequestNumber(), payload.Take()));
+            }
+        }
+        for (const auto& frame : frames) {
+            if (!send(connection, frame)) return;
+        }
+    }
+
     bool send(std::uint64_t connection, const std::vector<std::uint8_t>& frame) {
         std::lock_guard sendLock(sendMutex);
         Socket target = InvalidSocket;
@@ -361,21 +524,25 @@ private:
         }
         Reader welcome(payload.data(), payload.size());
         const std::uint16_t version = welcome.U16();
-        welcome.U16();
-        welcome.U16();
-        welcome.Skip(16);
+        Traffic offered;
+        offered.udpPort = welcome.U16();
+        offered.tcpPort = welcome.U16();
+        for (auto& byte : offered.streamKey) byte = welcome.U8();
         if (header.kind != KindWelcome || !welcome.Ok() || version != ProtocolVersion) {
             CloseSocket(target);
             return false;
         }
         SetTimeout(target, SO_RCVTIMEO, 0);
+        std::uint64_t connection = 0;
         {
             std::lock_guard lock(mutex);
             socketHandle = target;
             connected = true;
-            ++generation;
+            traffic = offered;
+            connection = ++generation;
         }
         APS5_LOG_CHARS_OUT("connected to the net service");
+        replay(connection);
         while (ReceiveFrame(target, header, payload)) handle(header, payload);
         {
             std::lock_guard sendLock(sendMutex);
@@ -386,6 +553,10 @@ private:
                 waiter->finished = true;
                 waiter->ok = false;
                 waiter->done.notify_all();
+            }
+            if (!peers.empty()) {
+                peers.clear();
+                ++peerCounter;
             }
             setState(BridgeState{});
             resolve();
@@ -398,6 +569,7 @@ private:
     void handle(const FrameHeader& header, const std::vector<std::uint8_t>& payload) {
         if (header.request == 0) {
             if (header.kind == KindState) applyState(payload);
+            else if (header.kind == KindPeer) applyPeer(payload);
             return;
         }
         if ((header.kind & ReplyBit) == 0) {
@@ -438,6 +610,25 @@ private:
         resolve();
     }
 
+    void applyPeer(const std::vector<std::uint8_t>& payload) {
+        Reader reader(payload.data(), payload.size());
+        std::string session = reader.Str();
+        const std::uint64_t accountId = reader.U64();
+        std::string handle = reader.Str();
+        const std::uint32_t address = reader.U32();
+        const std::uint8_t peerState = reader.U8();
+        if (!reader.Ok() || session.size() > MaxSessionLength || !ValidHandle(handle) || peerState < PeerConnecting || peerState > PeerFailed) return;
+        std::lock_guard lock(mutex);
+        PeerKey key{std::move(session), address};
+        auto found = peers.find(key);
+        if (found == peers.end()) {
+            if (peers.size() >= MaxPeers) return;
+            found = peers.emplace(std::move(key), Peer{}).first;
+        }
+        found->second = Peer{accountId, std::move(handle), peerState};
+        ++peerCounter;
+    }
+
     void setState(BridgeState next) {
         if (state == next) return;
         state = std::move(next);
@@ -455,6 +646,11 @@ private:
     std::uint64_t counter = 0;
     std::uint32_t lastRequest = 0;
     BridgeState state;
+    Traffic traffic;
+    std::map<BindKey, std::uint16_t> binds;
+    std::set<Activation> activations;
+    std::map<PeerKey, Peer> peers;
+    std::uint64_t peerCounter = 0;
     std::unordered_map<std::uint32_t, Waiter*> waiters;
 };
 
@@ -573,6 +769,74 @@ extern "C" void NetBridgePushFilter_nid_no_patch(std::int32_t userId, std::uint3
         Builder payload;
         payload.I32(userId).U32(filter).ListOfStrings(StringList(dataTypes, count));
         if (payload.Ok()) bridge->Event(KindPushFilter, payload.Take());
+    } catch (...) {
+    }
+}
+
+extern "C" int NetBridgeTraffic_nid_no_patch(NetBridgeTrafficView* out) {
+    if (out != nullptr) std::memset(out, 0, sizeof(*out));
+    try {
+        Bridge* bridge = Instance();
+        return bridge != nullptr && bridge->TrafficPorts(out) ? 1 : 0;
+    } catch (...) {
+        return 0;
+    }
+}
+
+extern "C" int NetBridgeActivate_nid_no_patch(std::int32_t userId, const char* session, std::uint8_t sessionKind) {
+    if (session == nullptr) return -1;
+    try {
+        Bridge* bridge = Instance();
+        if (bridge == nullptr) return ActivateSignedOut;
+        return bridge->Activate(userId, session, sessionKind);
+    } catch (...) {
+        return -1;
+    }
+}
+
+extern "C" void NetBridgeDeactivate_nid_no_patch(std::int32_t userId, const char* session) {
+    if (session == nullptr) return;
+    try {
+        if (Bridge* bridge = Instance()) bridge->Deactivate(userId, session);
+    } catch (...) {
+    }
+}
+
+extern "C" std::uint32_t NetBridgePeers_nid_no_patch(const char* session, NetBridgePeerView* out, std::uint32_t capacity, std::uint64_t* counter) {
+    if (counter != nullptr) *counter = 0;
+    if (session == nullptr) return 0;
+    try {
+        Bridge* bridge = Instance();
+        return bridge != nullptr ? bridge->Peers(session, out, capacity, counter) : 0;
+    } catch (...) {
+        return 0;
+    }
+}
+
+extern "C" int NetBridgePeerInfo_nid_no_patch(std::uint32_t address, NetBridgePeerInfoView* out) {
+    if (out == nullptr) return 0;
+    std::memset(out, 0, sizeof(*out));
+    try {
+        Bridge* bridge = Instance();
+        return bridge != nullptr && bridge->PeerInfo(address, out) ? 1 : 0;
+    } catch (...) {
+        std::memset(out, 0, sizeof(*out));
+        return 0;
+    }
+}
+
+extern "C" int NetBridgeBind_nid_no_patch(std::uint16_t vport, std::uint8_t transport, std::uint16_t loopbackPort) {
+    try {
+        Bridge* bridge = Instance();
+        return bridge != nullptr ? bridge->Bind(vport, transport, loopbackPort) : -1;
+    } catch (...) {
+        return -1;
+    }
+}
+
+extern "C" void NetBridgeUnbind_nid_no_patch(std::uint16_t vport, std::uint8_t transport) {
+    try {
+        if (Bridge* bridge = Instance()) bridge->Unbind(vport, transport);
     } catch (...) {
     }
 }

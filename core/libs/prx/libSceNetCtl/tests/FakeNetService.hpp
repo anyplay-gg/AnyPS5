@@ -188,6 +188,28 @@ struct PushFilterCall {
     std::vector<std::string> dataTypes;
 };
 
+struct ActivateCall {
+    std::int32_t userId = 0;
+    std::string session;
+    std::uint8_t sessionKind = 0;
+};
+
+struct BindCall {
+    std::uint16_t vport = 0;
+    std::uint8_t transport = 0;
+    std::uint16_t loopbackPort = 0;
+};
+
+struct Datagram {
+    std::uint16_t fromPort = 0;
+    std::uint32_t address = 0;
+    std::uint16_t vport = 0;
+    std::uint16_t sourceVport = 0;
+    Bytes payload;
+};
+
+constexpr std::uint32_t KnownPeer = 0xC6120002u;
+
 class Service {
 public:
     explicit Service(Bytes expectedToken) : token(std::move(expectedToken)) {
@@ -206,7 +228,17 @@ public:
         socklen_t length = sizeof(address);
         Require(::getsockname(listener, reinterpret_cast<sockaddr*>(&address), &length) == 0, "getsockname");
         port = ntohs(address.sin_port);
+        datagrams = ::socket(AF_INET, SOCK_DGRAM, 0);
+        Require(datagrams != InvalidHandle, "datagram socket");
+        sockaddr_in datagramAddress{};
+        datagramAddress.sin_family = AF_INET;
+        datagramAddress.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+        Require(::bind(datagrams, reinterpret_cast<const sockaddr*>(&datagramAddress), sizeof(datagramAddress)) == 0, "datagram bind");
+        length = sizeof(datagramAddress);
+        Require(::getsockname(datagrams, reinterpret_cast<sockaddr*>(&datagramAddress), &length) == 0, "datagram getsockname");
+        datagramPort = ntohs(datagramAddress.sin_port);
         worker = std::thread([this] { acceptLoop(); });
+        datagramWorker = std::thread([this] { datagramLoop(); });
     }
 
     Service(const Service&) = delete;
@@ -218,10 +250,79 @@ public:
         CloseHandleSafe(listener);
         DropConnection();
         if (worker.joinable()) worker.join();
+        ShutdownHandle(datagrams);
+        CloseHandleSafe(datagrams);
+        if (datagramWorker.joinable()) datagramWorker.join();
     }
 
     std::uint16_t Port() const {
         return port;
+    }
+
+    std::uint16_t DatagramPort() const {
+        return datagramPort;
+    }
+
+    void SendPeer(const std::string& session, std::uint64_t account, const std::string& handle, std::uint32_t address, std::uint8_t peerState) {
+        Bytes payload;
+        PutText(payload, session);
+        Put64(payload, account);
+        PutText(payload, handle);
+        Put32(payload, address);
+        payload.push_back(peerState);
+        sendToClient(MakeFrame(0x0303, 0, payload));
+    }
+
+    bool InjectDatagram(std::uint32_t fromAddress, std::uint16_t toVport, std::uint16_t fromVport, const Bytes& data) {
+        std::uint16_t target = 0;
+        {
+            std::lock_guard lock(mutex);
+            for (const auto& bind : liveBinds) {
+                if (bind.vport == toVport && bind.transport == 1) target = bind.loopbackPort;
+            }
+        }
+        if (target == 0) return false;
+        Bytes datagram;
+        Put32(datagram, fromAddress);
+        Put16(datagram, toVport);
+        Put16(datagram, fromVport);
+        datagram.insert(datagram.end(), data.begin(), data.end());
+        sockaddr_in destination{};
+        destination.sin_family = AF_INET;
+        destination.sin_port = htons(target);
+        destination.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+        return ::sendto(datagrams, reinterpret_cast<const char*>(datagram.data()), static_cast<int>(datagram.size()), 0, reinterpret_cast<const sockaddr*>(&destination), sizeof(destination)) ==
+            static_cast<int>(datagram.size());
+    }
+
+    std::vector<ActivateCall> Activations() {
+        std::lock_guard lock(mutex);
+        return activations;
+    }
+
+    std::vector<std::pair<std::int32_t, std::string>> Deactivations() {
+        std::lock_guard lock(mutex);
+        return deactivations;
+    }
+
+    std::vector<BindCall> Binds() {
+        std::lock_guard lock(mutex);
+        return bindCalls;
+    }
+
+    std::vector<BindCall> LiveBinds() {
+        std::lock_guard lock(mutex);
+        return liveBinds;
+    }
+
+    std::vector<std::pair<std::uint16_t, std::uint8_t>> Unbinds() {
+        std::lock_guard lock(mutex);
+        return unbinds;
+    }
+
+    std::vector<Datagram> Datagrams() {
+        std::lock_guard lock(mutex);
+        return received;
     }
 
     void SetState(bool signedIn, std::uint64_t account, const std::string& handle, std::uint8_t natType, const std::uint8_t (&address)[4]) {
@@ -352,7 +453,7 @@ private:
         welcomed.fetch_add(1);
         Bytes welcome;
         Put16(welcome, 0);
-        Put16(welcome, 0);
+        Put16(welcome, datagramPort);
         Put16(welcome, 0);
         for (int index = 0; index < 16; ++index) welcome.push_back(static_cast<std::uint8_t>(index));
         Bytes state;
@@ -394,11 +495,92 @@ private:
                 if (!cursor.Ok()) malformed.fetch_add(1);
                 std::lock_guard lock(mutex);
                 pushGone.emplace_back(user, filter);
+            } else if (kind == 0x0301 && request != 0) {
+                Cursor cursor(payload);
+                ActivateCall call;
+                call.userId = static_cast<std::int32_t>(cursor.Number(4));
+                call.session = cursor.Text();
+                call.sessionKind = static_cast<std::uint8_t>(cursor.Number(1));
+                if (!cursor.Ok()) malformed.fetch_add(1);
+                const std::uint8_t result = call.session == "missing" ? 1 : 0;
+                {
+                    std::lock_guard lock(mutex);
+                    activations.push_back(std::move(call));
+                }
+                sendToClient(MakeFrame(0x8301, request, Bytes{result}));
+            } else if (kind == 0x0302) {
+                Cursor cursor(payload);
+                const auto user = static_cast<std::int32_t>(cursor.Number(4));
+                std::string session = cursor.Text();
+                if (!cursor.Ok()) malformed.fetch_add(1);
+                std::lock_guard lock(mutex);
+                deactivations.emplace_back(user, std::move(session));
+            } else if (kind == 0x0304 && request != 0) {
+                Cursor cursor(payload);
+                const auto address = static_cast<std::uint32_t>(cursor.Number(4));
+                if (!cursor.Ok()) malformed.fetch_add(1);
+                Bytes reply;
+                reply.push_back(address == KnownPeer ? 1 : 0);
+                Put32(reply, address == KnownPeer ? 1234u : 0u);
+                reply.push_back(address == KnownPeer ? 1 : 0);
+                sendToClient(MakeFrame(0x8304, request, reply));
+            } else if (kind == 0x0305 && request != 0) {
+                Cursor cursor(payload);
+                BindCall call;
+                call.vport = static_cast<std::uint16_t>(cursor.Number(2));
+                call.transport = static_cast<std::uint8_t>(cursor.Number(1));
+                call.loopbackPort = static_cast<std::uint16_t>(cursor.Number(2));
+                if (!cursor.Ok()) malformed.fetch_add(1);
+                std::uint8_t result = 0;
+                {
+                    std::lock_guard lock(mutex);
+                    for (const auto& bind : liveBinds) {
+                        if (bind.vport == call.vport && bind.transport == call.transport) result = 1;
+                    }
+                    bindCalls.push_back(call);
+                    if (result == 0) liveBinds.push_back(call);
+                }
+                sendToClient(MakeFrame(0x8305, request, Bytes{result}));
+            } else if (kind == 0x0306) {
+                Cursor cursor(payload);
+                const auto vport = static_cast<std::uint16_t>(cursor.Number(2));
+                const auto transport = static_cast<std::uint8_t>(cursor.Number(1));
+                if (!cursor.Ok()) malformed.fetch_add(1);
+                std::lock_guard lock(mutex);
+                unbinds.emplace_back(vport, transport);
+                std::erase_if(liveBinds, [&](const BindCall& bind) { return bind.vport == vport && bind.transport == transport; });
             } else if (kind == 0x8000) {
                 unsupported.fetch_add(1);
             } else if (request != 0) {
                 sendToClient(MakeFrame(0x8000, request, {}));
             }
+        }
+        std::lock_guard lock(mutex);
+        liveBinds.clear();
+    }
+
+    void datagramLoop() {
+        std::uint8_t buffer[65536];
+        while (!stopping.load()) {
+            sockaddr_in source{};
+            socklen_t length = sizeof(source);
+            const auto got = ::recvfrom(datagrams, reinterpret_cast<char*>(buffer), sizeof(buffer), 0, reinterpret_cast<sockaddr*>(&source), &length);
+            if (got < 0) {
+                if (stopping.load()) return;
+                std::this_thread::sleep_for(std::chrono::milliseconds(5));
+                continue;
+            }
+            if (got < 8) continue;
+            const Bytes bytes(buffer, buffer + got);
+            Cursor cursor(bytes);
+            Datagram datagram;
+            datagram.fromPort = ntohs(source.sin_port);
+            datagram.address = static_cast<std::uint32_t>(cursor.Number(4));
+            datagram.vport = static_cast<std::uint16_t>(cursor.Number(2));
+            datagram.sourceVport = static_cast<std::uint16_t>(cursor.Number(2));
+            datagram.payload.assign(bytes.begin() + 8, bytes.end());
+            std::lock_guard lock(mutex);
+            received.push_back(std::move(datagram));
         }
     }
 
@@ -452,7 +634,10 @@ private:
     Handle listener = InvalidHandle;
     Handle client = InvalidHandle;
     std::uint16_t port = 0;
+    Handle datagrams = InvalidHandle;
+    std::uint16_t datagramPort = 0;
     std::thread worker;
+    std::thread datagramWorker;
     std::atomic<bool> stopping{false};
     std::atomic<int> hold{1};
     std::atomic<int> welcomed{0};
@@ -466,6 +651,12 @@ private:
     std::vector<std::pair<std::int32_t, std::uint32_t>> features;
     std::vector<PushFilterCall> pushFilters;
     std::vector<std::pair<std::int32_t, std::uint32_t>> pushGone;
+    std::vector<ActivateCall> activations;
+    std::vector<std::pair<std::int32_t, std::string>> deactivations;
+    std::vector<BindCall> bindCalls;
+    std::vector<BindCall> liveBinds;
+    std::vector<std::pair<std::uint16_t, std::uint8_t>> unbinds;
+    std::vector<Datagram> received;
 };
 
 inline void SetEnvironment(const char* name, const std::string& value) {
