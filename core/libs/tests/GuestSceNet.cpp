@@ -43,12 +43,6 @@ extern const std::uint8_t sce_net_in6addr_linklocal_allnodes[16];
 
 std::uint64_t NetCtlReadByteCounter_nid_no_patch(const char*);
 
-int APS5_VABI select_nid_postfix(int, void*, void*, void*, const void*);
-int APS5_VABI open_nid_postfix(const char*, int, int);
-int APS5_VABI socket_nid_postfix(int, int, int);
-int APS5_VABI bind_nid_postfix(int, const void*, std::uint32_t);
-int APS5_VABI getsockname_nid_postfix(int, void*, std::uint32_t*);
-int APS5_VABI close_nid_postfix(int);
 bool GuestSocketIsOpen_nid_no_patch(int);
 
 }
