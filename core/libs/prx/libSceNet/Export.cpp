@@ -1889,7 +1889,6 @@ int APS5_VABI sceNetSetsockopt(int s, int level, int optname, const void* optval
         const int error = GuestSocketSetIpv6LevelOption_nid_no_patch(static_cast<std::uintptr_t>(socket.native->value), socket.family == NET_AF_INET6, optname, optval, optlen);
         return netCall.Ret(error == 0 ? 0 : fail(error));
     }
-    if (level == NET_IPPROTO_TCP && socket.type != NET_SOCK_STREAM) return netCall.Ret(fail(NET_EINVAL));
     if (level == NET_IPPROTO_TCP && socket.type != NET_SOCK_STREAM && socket.type != NET_SOCK_STREAM_P2P) return netCall.Ret(fail(NET_EINVAL));
     if (level == NET_IPPROTO_TCP && optname == NET_TCP_NODELAY) {
         if (!optval || optlen < sizeof(int)) return netCall.Ret(fail(NET_EINVAL));
