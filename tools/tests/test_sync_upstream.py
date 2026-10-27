@@ -14,6 +14,8 @@ IDENTITY = {
     "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@example.com",
     "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@example.com",
 }
+os.environ.update(IDENTITY)
+
 DOC = (
     "| Group | Paths | Why | Sync risk |\n|---|---|---|\n"
     "| Bridge | `bridge/` | the bridge | Low |\n"
