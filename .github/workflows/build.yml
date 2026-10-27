@@ -17,6 +17,11 @@ on:
         required: false
         default: true
         type: boolean
+      hosted:
+        description: Run the Linux build on GitHub's hosted ubuntu-latest runner instead of the self-hosted one (use when that runner is offline)
+        required: false
+        default: false
+        type: boolean
       full:
         description: Run the full Linux and Windows builds (off runs only the relinker builds and tests on Linux, Windows and macOS)
         required: false
@@ -56,6 +61,7 @@ jobs:
       relinker: ${{ steps.gate.outputs.relinker }}
       register-context: ${{ steps.gate.outputs.register-context }}
       write-watch: ${{ steps.gate.outputs.write-watch }}
+      mingw-host-tests: ${{ steps.gate.outputs.mingw-host-tests }}
       full: ${{ steps.gate.outputs.full }}
       relinker-hosts: ${{ steps.gate.outputs.relinker-hosts }}
     steps:
@@ -126,14 +132,22 @@ jobs:
                 paths.some((path) => prefixes.some((prefix) => prefix.endsWith('/') ? path.startsWith(prefix) : path === prefix));
               const edits = (job) => ['*', '', 'eligibility', job].some((name) => workflowJobs.has(name));
               return {
-                relinker: edits('relinker') || touches(
+                relinker: edits('relinker') || edits('relinker-asan') || touches(
                   'core/relinker/', libc, 'core/libs/prx/libkernel/AppMetadata/', 'core/libs/tests/ParamJsonParser.cpp',
-                  'core/shader/recompiler/tests/CacheFileReadTests.cpp', 'core/shader/recompiler/ShaderCacheDirectory.hpp',
+                  'core/libs/prx/libkernel/DirectMemory/DirectMemory.hpp', 'core/libs/prx/libkernel/KernelErrors.hpp',
+                  'core/libs/nid/src/NidCompute.cpp', 'core/libs/nid/src/Sha1.cpp',
+                  'core/libs/nid/include/nid/NidCompute.hpp', 'core/libs/nid/include/nid/Sha1.hpp',
+                  'core/libs/prx/libScePad/tests/InputCommandFile.cpp', 'core/libs/prx/libScePad/include/InputCommandFile.hpp',
+                  'core/shader/recompiler/', '.github/pull_request_template.md', '.github/workflows/pr-overlap.yml',
                   'tools/', 'cmake/', 'CMakeLists.txt'
                 ),
                 registerContext: edits('register-context') ||
                   touches('core/libs/tests/register_context/', 'core/libs/tests/RegisterContext.cpp', libc),
                 writeWatch: edits('write-watch') || touches('core/libs/tests/write_watch/', 'core/libs/tests/WriteWatch.cpp', libc),
+                mingwHostTests: edits('eligibility') || edits('windows') || touches(
+                  'core/libs/', 'tools/build_mingw_host_only_tests.py',
+                  'tools/tests/test_mingw_host_only_test_targets.py', 'CMakeLists.txt'
+                ),
               };
             };
             const relinkerHosts = (full, linux) => JSON.stringify([
@@ -168,6 +182,7 @@ jobs:
               core.setOutput('relinker', run.relinker);
               core.setOutput('register-context', run.registerContext);
               core.setOutput('write-watch', run.writeWatch);
+              core.setOutput('mingw-host-tests', false);
               core.setOutput('full', true);
               core.setOutput('relinker-hosts', relinkerHosts(true, true));
               await core.summary.addRaw(
@@ -257,6 +272,7 @@ jobs:
             core.setOutput('relinker', relinker);
             core.setOutput('register-context', registerContext);
             core.setOutput('write-watch', writeWatch);
+            core.setOutput('mingw-host-tests', !manual && run.mingwHostTests);
             core.setOutput('full', full);
             core.setOutput('relinker-hosts', relinkerHosts(full, linux));
             const merged = pulls.map((pull) => `PR #${pull.number} at ${pull.head} merged into main at ${main.commit.sha}`);
@@ -422,14 +438,10 @@ jobs:
   linux:
     needs: eligibility
     if: ${{ (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.linux)) && needs.eligibility.outputs.full == 'true' }}
-    runs-on: [self-hosted, linux, x64, anyps5]
-    timeout-minutes: 60
+    runs-on: ${{ fromJSON(inputs.hosted && '"ubuntu-latest"' || '["self-hosted","linux","x64","anyps5"]') }}
+    timeout-minutes: ${{ inputs.hosted && 330 || 60 }}
     env:
-      CCACHE_DIR: /var/cache/anyps5/ccache
-      CCACHE_MAXSIZE: 30G
       CCACHE_COMPILERCHECK: content
-      MESA_SHADER_CACHE_DIR: /var/cache/anyps5/mesa
-      MESA_SHADER_CACHE_MAX_SIZE: 4G
     steps:
       - uses: actions/checkout@v7
         with:
@@ -455,8 +467,28 @@ jobs:
             if ! git -c user.name=ci -c user.email=ci@localhost merge --no-ff --no-edit "refs/remotes/pull/${numbers[i]}"; then echo "::error::Pull request #${numbers[i]} does not merge cleanly into main and the pull requests before it; rebase it first"; exit 1; fi
           done
           git submodule update --init --recursive
-      - name: Prepare persistent caches
+      - name: Install the build dependencies on the hosted runner
+        if: ${{ inputs.hosted }}
         run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ninja-build ccache libvulkan1 mesa-vulkan-drivers libpipewire-0.3-dev libpulse-dev libasound2-dev libxrandr-dev libwayland-dev libxkbcommon-dev libegl-dev libdecor-0-dev
+      - uses: hendrikmuhs/ccache-action@v1.2.24
+        if: ${{ inputs.hosted }}
+        with:
+          key: linux-hosted
+          save: ${{ github.ref == 'refs/heads/main' }}
+          max-size: 2G
+          evict-old-files: job
+      - name: Prepare persistent caches
+        if: ${{ !inputs.hosted }}
+        run: |
+          {
+            echo CCACHE_DIR=/var/cache/anyps5/ccache
+            echo CCACHE_MAXSIZE=30G
+            echo MESA_SHADER_CACHE_DIR=/var/cache/anyps5/mesa
+            echo MESA_SHADER_CACHE_MAX_SIZE=4G
+          } >> "$GITHUB_ENV"
+          export CCACHE_DIR=/var/cache/anyps5/ccache MESA_SHADER_CACHE_DIR=/var/cache/anyps5/mesa
           mkdir -p "$CCACHE_DIR" "$MESA_SHADER_CACHE_DIR"
           test -w "$CCACHE_DIR" && test -w "$MESA_SHADER_CACHE_DIR"
           ccache --zero-stats
@@ -490,7 +522,15 @@ jobs:
           gcc "-B$dir/bin" "$probe/main.c" -o "$probe/main"
           readelf -p .comment "$probe/main" | grep -F "Linker: Wild $WILD_VERSION"
           echo "LINKER_FLAGS=-B$dir/bin" >> "$GITHUB_ENV"
+      - name: Size parallelism to the hosted runner
+        if: ${{ inputs.hosted }}
+        run: |
+          cpus=$(nproc)
+          echo "cpus=$cpus -> build jobs $cpus, tests $cpus"
+          echo "CMAKE_BUILD_PARALLEL_LEVEL=$cpus" >> "$GITHUB_ENV"
+          echo "CTEST_PARALLEL_LEVEL=$cpus" >> "$GITHUB_ENV"
       - name: Size parallelism to what the shared host has free
+        if: ${{ !inputs.hosted }}
         run: |
           cpus=$(nproc)
           busy=$(awk '{ printf "%d", $1 + 0.5 }' /proc/loadavg)
@@ -522,7 +562,7 @@ jobs:
         env:
           BASE: ${{ needs.eligibility.outputs.sha }}
         run: |
-          git diff --name-only "$BASE" HEAD > changed.txt
+          git diff --name-only -z "$BASE" HEAD -- > changed.txt
           python3 tools/select_tests.py select build test-graph.json changed.txt
       - id: build
         run: |
@@ -557,7 +597,7 @@ jobs:
 
   windows:
     needs: eligibility
-    if: ${{ (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && needs.eligibility.outputs.full == 'true' }}
+    if: ${{ ((github.event_name == 'push' || github.event_name == 'workflow_dispatch') && needs.eligibility.outputs.full == 'true') || (github.event_name == 'pull_request' && needs.eligibility.outputs.mingw-host-tests == 'true') }}
     runs-on: windows-latest
     timeout-minutes: 120
     env:
@@ -628,8 +668,7 @@ jobs:
       - run: echo 'C:\winlibs\mingw64\bin' >> "$GITHUB_PATH"
       - uses: hendrikmuhs/ccache-action@v1.2.24
         with:
-          key: ${{ github.event_name == 'workflow_dispatch' && 'dispatch-windows' || 'windows' }}
-          restore-keys: ${{ github.event_name == 'workflow_dispatch' && 'windows' || '' }}
+          key: windows
           save: ${{ github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') }}
           evict-old-files: job
       - id: ffmpeg-cache
@@ -642,6 +681,9 @@ jobs:
         with:
           path: configure-seed.cmake
           key: configure-seed-${{ env.WINLIBS_ZIP }}-${{ steps.submodules.outputs.key }}-${{ hashFiles('CMakeLists.txt', 'cmake/**', 'core/libs/CMakeLists.txt', 'tools/configure_seed.py', '.github/workflows/build.yml') }}
+      - if: github.event_name == 'pull_request'
+        shell: bash
+        run: mkdir -p build/.cmake/api/v1/query && touch build/.cmake/api/v1/query/codemodel-v2
       - shell: cmd
         run: if exist configure-seed.cmake (cmake -C configure-seed.cmake -S . -B build %CONFIGURE% "-DANYPS5_AGC_EXECUTION_TESTS=F16ToF32Unpack;F64FmaSubnormals;RegistrationPrepareShutdown") else (cmake -S . -B build %CONFIGURE% "-DANYPS5_AGC_EXECUTION_TESTS=F16ToF32Unpack;F64FmaSubnormals;RegistrationPrepareShutdown")
       - if: steps.seed-cache.outputs.cache-hit != 'true'
@@ -674,17 +716,30 @@ jobs:
           BASE: ${{ needs.eligibility.outputs.sha }}
         shell: cmd
         run: |
-          git diff --name-only %BASE% HEAD > changed.txt
+          git diff --name-only -z %BASE% HEAD -- > changed.txt
           python tools/select_tests.py select build test-graph.json changed.txt
       - id: build
+        if: github.event_name != 'pull_request'
         shell: cmd
         run: if exist build\select.ninja (ninja -C build -f select.ninja selected) else (cmake --build build)
+      - name: List changed files for host-only test linking
+        if: github.event_name == 'pull_request'
+        env:
+          BASE: ${{ needs.eligibility.outputs.sha }}
+        run: git diff --name-only "$BASE" HEAD > changed.txt
+      - name: Link changed host-only core/libs test executables
+        if: github.event_name == 'pull_request'
+        shell: cmd
+        run: python tools/build_mingw_host_only_tests.py build changed.txt
       - id: libs
+        if: github.event_name != 'pull_request'
         shell: cmd
         run: cmake --build build --target libs
-      - shell: cmd
+      - if: github.event_name != 'pull_request'
+        shell: cmd
         run: python tools/select_tests.py ctest build --output-on-failure --timeout 120 --parallel 4 --output-log ctest.log --output-junit ctest.xml
-      - run: python tools/check_skips.py build/ctest.xml --job windows
+      - if: github.event_name != 'pull_request'
+        run: python tools/check_skips.py build/ctest.xml --job windows
       - name: Write the test graph of main
         if: ${{ !cancelled() && github.event_name == 'push' && steps.build.outcome == 'success' && steps.libs.outcome == 'success' }}
         continue-on-error: true

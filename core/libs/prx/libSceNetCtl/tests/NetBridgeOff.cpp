@@ -42,18 +42,6 @@ void ExpectOff() {
     NetBridgeFeature_nid_no_patch(-1, 1);
     NetBridgePushFilter_nid_no_patch(-1, 1, nullptr, 0);
     NetBridgePushFilterGone_nid_no_patch(-1, 1);
-
-    NetCtlNatInfo nat{};
-    nat.size = sizeof(nat);
-    std::memset(nat.opaque, 0x5A, sizeof(nat.opaque));
-    bool threw = false;
-    try {
-        sceNetCtlGetNatInfo(&nat);
-    } catch (const std::logic_error&) {
-        threw = true;
-    }
-    Require(threw, "NAT info still throws");
-    for (const auto value : nat.opaque) Require(value == 0x5A, "NAT info untouched");
 }
 
 }

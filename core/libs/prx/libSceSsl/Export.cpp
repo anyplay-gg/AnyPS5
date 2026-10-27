@@ -1013,6 +1013,10 @@ int APS5_VABI sceSslRead(int sslConnectionId, void* buf, size_t len, int flags) 
     return netCall.Ret(static_cast<int>(received));
 }
 
+int SslRead_nid_no_patch(int sslConnectionId, void* buffer, std::size_t length, int flags) {
+    return sceSslRead(sslConnectionId, buffer, length, flags);
+}
+
 int APS5_VABI sceSslWrite(int sslConnectionId, void* buf, size_t len, int flags) {
     NetBridgeCall netCall("libSceSsl", __func__, [&](NetBridgeJson& netIn) { netIn.Int("ssl_connection_id", sslConnectionId); netIn.Uint("len", len); netIn.Int("flags", flags); });
     if (flags != 0) return netCall.Ret(ErrorInvalidValue);

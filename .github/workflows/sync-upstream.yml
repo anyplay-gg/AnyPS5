@@ -46,6 +46,7 @@ jobs:
           git fetch --no-tags upstream main
           behind=$(git rev-list --count origin/main..upstream/main)
           echo "behind=$behind" >> "$GITHUB_OUTPUT"
+          echo "sha=$(git rev-parse --short upstream/main)" >> "$GITHUB_OUTPUT"
           if [ "$behind" = "0" ]; then echo "main already contains upstream main"; echo "changed=false" >> "$GITHUB_OUTPUT"; exit 0; fi
           if git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null; then
             git checkout -B "$BRANCH" "origin/$BRANCH"
@@ -88,6 +89,7 @@ jobs:
         if: steps.merge.outputs.changed == 'true'
         env:
           behind: ${{ steps.merge.outputs.behind }}
+          sha: ${{ steps.merge.outputs.sha }}
         run: |
           number=$(gh pr list --head "$BRANCH" --state open --json number --jq '.[0].number // empty')
           cat > body.md <<EOF
@@ -112,7 +114,7 @@ jobs:
           - [x] AI-assisted: no
           EOF
           if [ -z "$number" ]; then
-            if ! number=$(gh pr create --head "$BRANCH" --base main --title "chore(sync): sync fork with upstream boykopovar/AnyPS5 main" --body-file body.md | grep -o '[0-9]*$'); then
+            if ! number=$(gh pr create --head "$BRANCH" --base main --title "chore(sync): merge upstream boykopovar/AnyPS5 up to $sha" --body-file body.md | grep -o '[0-9]*$'); then
               {
                 echo "The branch $BRANCH is pushed and merges upstream main, but this workflow could not open the pull request. Open it here: https://github.com/$GITHUB_REPOSITORY/compare/main...$BRANCH?expand=1"
                 echo
@@ -122,6 +124,6 @@ jobs:
               exit 0
             fi
           else
-            gh pr edit "$number" --body-file body.md
+            gh pr edit "$number" --title "chore(sync): merge upstream boykopovar/AnyPS5 up to $sha" --body-file body.md
           fi
           gh workflow run build.yml -f pr="$number" -f linux=false
