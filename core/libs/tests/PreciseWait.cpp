@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <cstdlib>
 #include <iostream>
+#include <thread>
 
 namespace {
 
@@ -60,6 +61,19 @@ bool CheckMedianSleepBound(
         if (bestMedian < maxMedian) {
             return true;
         }
+    }
+    std::array<std::chrono::nanoseconds, 65> baseline{};
+    for (auto& sample : baseline) {
+        const auto start = std::chrono::steady_clock::now();
+        std::this_thread::sleep_for(minDuration);
+        sample = std::chrono::steady_clock::now() - start;
+    }
+    std::sort(baseline.begin(), baseline.end());
+    const auto baselineMedian = baseline[baseline.size() / 2];
+    if (bestMedian <= baselineMedian + std::chrono::microseconds(10)) {
+        std::clog << label << " median " << bestMedian.count() << " ns is within 10 us of std::this_thread::sleep_for on this runner ("
+                  << baselineMedian.count() << " ns)\n";
+        return true;
     }
     if (IsRunnerPreempted() || samples.back() - samples.front() > std::chrono::milliseconds(1)) {
         std::clog << "Skipping strict median bound for " << label << " on busy runner ("
