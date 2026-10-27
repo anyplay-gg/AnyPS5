@@ -49,13 +49,33 @@ int main() {
     Require(sceHttp2SetResolveRetry(tmpl, 3) == 0);
     Require(sceHttp2SetCookieBox(tmpl, box) == 0);
     Require(sceHttp2SetCookieBox(tmpl, 0) == 0);
-    const int request = sceHttp2CreateRequestWithURL(tmpl, "POST", "https://example.com/", 16);
+    const int request = sceHttp2CreateRequestWithURL(tmpl, "POST", "https://127.0.0.1:1/", 16);
     Require(request > 0);
     Require(sceHttp2SetCookieBox(request, other) == 0);
     Require(sceHttp2SetRequestNoContentLength(request) == 0);
     Require(Throws([] { sceHttp2WebSocketSetPingInterval(0, 1000000); }));
     Require(sceHttp2CookieFlush(context) == 0);
     Require(sceHttp2SendRequest(request, nullptr, 0) == static_cast<int>(0x80436063));
+
+    const int liveRequest = sceHttp2CreateRequestWithURL(tmpl, "GET", "https://directory.t17service.com/", 0);
+    Require(liveRequest > 0);
+    Require(sceHttp2SendRequest(liveRequest, nullptr, 0) == 0);
+    int statusCode = 0;
+    Require(sceHttp2GetStatusCode(liveRequest, &statusCode) == 0 && statusCode == 404);
+    int hasContentLength = 0;
+    uint64_t contentLength = 0;
+    Require(sceHttp2GetResponseContentLength(liveRequest, &hasContentLength, &contentLength) == 0);
+    Require(hasContentLength == 2 && contentLength == 34);
+    char* allHeaders = nullptr;
+    size_t allHeadersSize = 0;
+    Require(sceHttp2GetAllResponseHeaders(liveRequest, &allHeaders, &allHeadersSize) == 0);
+    Require(allHeaders != nullptr && allHeadersSize > 0);
+    char buffer[64];
+    const int bytesRead = sceHttp2ReadData(liveRequest, buffer, sizeof(buffer));
+    Require(bytesRead == 34);
+    Require(std::string(buffer, bytesRead) == "{\"code\":404,\"message\":\"Not Found\"}");
+    Require(sceHttp2ReadData(liveRequest, buffer, sizeof(buffer)) == 0);
+    Require(sceHttp2DeleteRequest(liveRequest) == 0);
 
     RequireSslSetters(0, InvalidId);
     RequireSslSetters(-1, InvalidId);
@@ -132,7 +152,7 @@ int main() {
         Require(sceHttp2SendRequestAsync(invalid, nullptr, 0, nullptr, nullptr) == InvalidId);
         Require(Throws([&] { sceHttp2WaitAsync(invalid, &result, nullptr, nullptr); }));
     }
-    const int independent = sceHttp2CreateRequestWithURL(tmpl, "GET", "https://example.com/", 0);
+    const int independent = sceHttp2CreateRequestWithURL(tmpl, "GET", "https://127.0.0.1:1/", 0);
     Require(independent > 0 && independent != request);
     Require(sceHttp2SendRequestAsync(request, nullptr, 0, nullptr, nullptr) == 0);
     Require(sceHttp2SendRequestAsync(independent, nullptr, 0, nullptr, nullptr) == 0);
@@ -150,6 +170,23 @@ int main() {
     Require(sceHttp2DeleteRequest(independent) == 0);
     Require(sceHttp2SendRequestAsync(independent, nullptr, 0, nullptr, nullptr) == InvalidId);
     Require(Throws([&] { sceHttp2WaitAsync(independent, &result, nullptr, nullptr); }));
+
+    const int liveAsync = sceHttp2CreateRequestWithURL(tmpl, "GET", "https://directory.t17service.com/", 0);
+    Require(liveAsync > 0);
+    Require(sceKernelAddUserEventEdge(eq, liveAsync) == 0);
+    Http2AsyncOption liveOpt{};
+    liveOpt.equeue = eq;
+    liveOpt.user_event_id = liveAsync;
+    liveOpt.user_data = &tag;
+    Require(sceHttp2SendRequestAsync(liveAsync, nullptr, 0, &liveOpt, nullptr) == 0);
+    Require(sceKernelWaitEqueue(eq, &event, 1, &count, &timeout) == 0 && count == 1);
+    Require(sceKernelGetEventId(&event) == static_cast<uintptr_t>(liveAsync));
+    Require(sceHttp2WaitAsync(liveAsync, &result, nullptr, nullptr) == 0);
+    Require(result.req_id == liveAsync && result.result == 0);
+    Require(sceHttp2GetStatusCode(liveAsync, &statusCode) == 0 && statusCode == 404);
+    Require(sceKernelDeleteUserEvent(eq, liveAsync) == 0);
+    Require(sceHttp2DeleteRequest(liveAsync) == 0);
+
     Require(sceKernelDeleteUserEvent(eq, request) == 0);
     Require(Throws([&] { sceHttp2SendRequestAsync(request, nullptr, 0, &option, nullptr); }));
     Require(Throws([&] { sceHttp2WaitAsync(request, &result, nullptr, nullptr); }));
@@ -164,7 +201,7 @@ int main() {
     Require(cascadeContext > 0);
     const int cascadeTemplate = sceHttp2CreateTemplate(cascadeContext, "agent", 2, 0);
     Require(cascadeTemplate > 0);
-    const int cascadeRequest = sceHttp2CreateRequestWithURL(cascadeTemplate, "GET", "https://example.com/cascade", 0);
+    const int cascadeRequest = sceHttp2CreateRequestWithURL(cascadeTemplate, "GET", "https://127.0.0.1:1/cascade", 0);
     Require(cascadeRequest > 0);
     Require(sceKernelAddUserEventEdge(templateEqueue, cascadeRequest) == 0);
     Http2AsyncOption cascadeOption{};
@@ -191,7 +228,7 @@ int main() {
     Require(terminatedContext > 0);
     const int terminatedTemplate = sceHttp2CreateTemplate(terminatedContext, "agent", 2, 0);
     Require(terminatedTemplate > 0);
-    const int terminatedRequest = sceHttp2CreateRequestWithURL(terminatedTemplate, "GET", "https://example.com/terminated", 0);
+    const int terminatedRequest = sceHttp2CreateRequestWithURL(terminatedTemplate, "GET", "https://127.0.0.1:1/terminated", 0);
     Require(terminatedRequest > 0);
     Require(sceKernelAddUserEventEdge(termEqueue, terminatedRequest) == 0);
     Http2AsyncOption termOption{};
