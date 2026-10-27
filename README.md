@@ -21,7 +21,7 @@ The bridge follows [the line](https://github.com/anyplaynet/network/blob/main/do
 
 ## How the fork tracks upstream
 
-A workflow keeps one open pull request, `sync/upstream-<date>`, that merges upstream `main` into the fork every week (and on demand). It lists the upstream changes and the files both sides changed, starts the Linux and Windows builds, and opens the pull request as a draft with the conflicting files when upstream does not merge cleanly. A person reads it, and then it is merged. Everything outside the bridge stays as upstream has it, which keeps those merges small. [FORK](docs/dev/FORK.md) lists every place the fork differs and why; a script checks it against upstream.
+A workflow keeps one open pull request, `sync/upstream-<date>`, that merges upstream `main` into the fork every day (and on demand). It lists the upstream changes and the files both sides changed, starts the Linux and Windows builds, and opens the pull request as a draft with the conflicting files when upstream does not merge cleanly. A person reads it, and then it is merged. Everything outside the bridge stays as upstream has it, which keeps those merges small. [FORK](docs/dev/FORK.md) lists every place the fork differs and why; a script checks it against upstream.
 
 ## Contributing
 
