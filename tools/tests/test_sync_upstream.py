@@ -128,6 +128,7 @@ class SyncUpstreamTests(unittest.TestCase):
         self.assertEqual(self.repo.git("ls-files", ".github"), ".github/workflows/b.yml")
         self.assertEqual((self.repo.path / ".github/workflows/b.yml").read_text(encoding="utf-8"), "name: b\n")
         self.assertEqual(self.repo.git("log", "-1", "--format=%s"), sync_upstream.STRIP_SUBJECT)
+        self.assertEqual(sync_upstream.stripped_paths(self.repo.path, "HEAD", "main"), [".github/workflows/b.yml", ".github/workflows/new.yml"])
         self.assertIn("### Workflow files not included", (out / "body.md").read_text(encoding="utf-8"))
         self.assertIn("`.github/workflows/new.yml`", (out / "body.md").read_text(encoding="utf-8"))
 

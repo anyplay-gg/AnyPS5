@@ -149,4 +149,10 @@ jobs:
         shell: bash
         env:
           SYNC_BRANCH: ${{ steps.merge.outputs.branch }}
-        run: python3 "$RUNNER_TEMP/tools/fork_divergence.py" --upstream upstream/main --head "$SYNC_BRANCH" | tee -a "$GITHUB_STEP_SUMMARY"
+        run: |
+          git checkout -q "$SYNC_BRANCH"
+          ignore=()
+          while read -r file; do
+            if [ -n "$file" ]; then ignore+=(--ignore "$file"); fi
+          done < <(python3 "$RUNNER_TEMP/tools/sync_upstream.py" --list-stripped --main "origin/$BASE")
+          python3 "$RUNNER_TEMP/tools/fork_divergence.py" --upstream upstream/main --head "$SYNC_BRANCH" "${ignore[@]}" | tee -a "$GITHUB_STEP_SUMMARY"

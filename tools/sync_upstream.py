@@ -117,6 +117,13 @@ def strip_workflows(args):
     return [path for _, path in changed]
 
 
+def stripped_paths(repo, ref, main):
+    found = []
+    for sha in out(repo, "log", "--format=%H", "--fixed-strings", "--grep", STRIP_SUBJECT, ref, f"^{main}").splitlines():
+        found += [name for name in out(repo, "show", "--no-renames", "--name-only", "--format=", sha).splitlines() if name]
+    return sorted(set(found))
+
+
 def stripped_note(paths):
     lines = ["", "### Workflow files not included", "The workflow token cannot push changes to `.github/workflows`, so this branch keeps the fork's version of every workflow file. Upstream changed these; apply what the fork needs by hand with `git checkout upstream/main -- <file>` and a normal commit:"]
     return "\n".join(lines + [f"- `{path}`" for path in paths])
@@ -206,7 +213,11 @@ def body(repo, args, state, before):
     lines += [f"- {quote(str(number))} {quote(title)}" for number, title in pulls[:PULL_LIMIT]]
     if len(pulls) > PULL_LIMIT:
         lines.append(f"- and {len(pulls) - PULL_LIMIT} more")
-    lines += ["", "</details>", "", "### Tested"]
+    lines += ["", "</details>"]
+    kept = stripped_paths(repo, "HEAD", args.main)
+    if kept:
+        lines.append(stripped_note(kept))
+    lines += ["", "### Tested"]
     if state["status"] == "conflict":
         lines.append("Not built: the branch has unresolved conflicts.")
     else:
@@ -223,11 +234,17 @@ def main(argv=None):
     parser.add_argument("--remote", default="origin")
     parser.add_argument("--existing", default="", help="head branch of the open sync pull request, if there is one")
     parser.add_argument("--prefix", default="sync/upstream", help="branch name prefix, the date is appended")
-    parser.add_argument("--date", required=True)
+    parser.add_argument("--date", default="")
     parser.add_argument("--doc", default=fork_divergence.DEFAULT_DOC)
-    parser.add_argument("--out", type=Path, required=True)
+    parser.add_argument("--out", type=Path)
+    parser.add_argument("--list-stripped", action="store_true", help="print the workflow files the checked-out sync branch keeps at the fork's version")
     parser.add_argument("--strip-workflows", action="store_true", help="restore the fork's workflow files on the checked-out sync branch and add the note to the report in --out")
     args = parser.parse_args(argv)
+    if not args.list_stripped and not args.out:
+        parser.error("--out is required")
+    if args.list_stripped:
+        print("\n".join(stripped_paths(args.repo, "HEAD", args.main)))
+        return 0
     if args.strip_workflows:
         try:
             paths = strip_workflows(args)

@@ -42,8 +42,9 @@ def matches(pattern, path):
     return fnmatch.fnmatchcase(path, pattern)
 
 
-def analyze(repo, upstream, head, doc):
+def analyze(repo, upstream, head, doc, ignore=()):
     base, files = diverging_files(repo, upstream, head)
+    files = [path for path in files if path not in set(ignore)]
     path = Path(repo) / doc
     text = path.read_text(encoding="utf-8") if head == "HEAD" and path.exists() else git(repo, "show", f"{head}:{doc}")
     rows = read_rows(text)
@@ -90,10 +91,11 @@ def main(argv=None):
     parser.add_argument("--upstream", default=DEFAULT_UPSTREAM)
     parser.add_argument("--head", default="HEAD")
     parser.add_argument("--doc", default=DEFAULT_DOC)
+    parser.add_argument("--ignore", action="append", default=[], help="a file to leave out of the check, for example a workflow file the sync could not take")
     parser.add_argument("--list", action="store_true", help="print the files of every group")
     args = parser.parse_args(argv)
     try:
-        data = analyze(args.repo, args.upstream, args.head, args.doc)
+        data = analyze(args.repo, args.upstream, args.head, args.doc, args.ignore)
     except RuntimeError as error:
         parser.error(str(error))
     print(render(data, args.list))
