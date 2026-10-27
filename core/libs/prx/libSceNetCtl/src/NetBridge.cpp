@@ -11,8 +11,15 @@
 #include <unistd.h>
 #endif
 
+#ifdef _WIN32
+#include <bcrypt.h>
+#else
+#include <cstdio>
+#endif
+
 #include "prx/libSceNetCtl/include/NetBridge.hpp"
 #include "prx/libc/include/general/LogMacros.hpp"
+#include "NetBridgeAuth.hpp"
 #include "NetBridgeWire.hpp"
 
 #include <cerrno>
@@ -246,13 +253,25 @@ bool ReceiveAll(Socket socketHandle, std::uint8_t* data, std::size_t size) {
     return true;
 }
 
-bool ReceiveFrame(Socket socketHandle, FrameHeader& header, std::vector<std::uint8_t>& payload) {
+bool ReceiveFrame(Socket socketHandle, FrameHeader& header, std::vector<std::uint8_t>& payload, std::uint32_t limit = MaxPayload) {
     std::uint8_t raw[HeaderSize];
     if (!ReceiveAll(socketHandle, raw, sizeof(raw))) return false;
     header = ParseHeader(raw);
-    if (header.length > MaxPayload) return false;
+    if (header.length > limit) return false;
     payload.assign(header.length, 0);
     return header.length == 0 || ReceiveAll(socketHandle, payload.data(), payload.size());
+}
+
+bool RandomBytes(std::uint8_t* out, std::size_t size) {
+#ifdef _WIN32
+    return BCRYPT_SUCCESS(BCryptGenRandom(nullptr, out, static_cast<ULONG>(size), BCRYPT_USE_SYSTEM_PREFERRED_RNG));
+#else
+    std::FILE* source = std::fopen("/dev/urandom", "rb");
+    if (source == nullptr) return false;
+    const bool ok = std::fread(out, 1, size, source) == size;
+    std::fclose(source);
+    return ok;
+#endif
 }
 
 bool ValidHandle(const std::string& handle) {
@@ -551,12 +570,46 @@ private:
 
     bool serve(Socket target) {
         SetTimeout(target, SO_RCVTIMEO, HandshakeTimeoutMs);
+        NetBridgeAuth::Nonce bridgeNonce{};
+        if (!RandomBytes(bridgeNonce.data(), bridgeNonce.size())) {
+            APS5_LOG_CHARS_ERR("no secure random numbers; the bridge cannot connect");
+            CloseSocket(target);
+            return false;
+        }
         Builder hello;
-        hello.U16(ProtocolVersion).Raw(config.token.data(), config.token.size());
+        hello.U16(ProtocolVersion).Raw(bridgeNonce.data(), bridgeNonce.size());
         const auto helloFrame = EncodeFrame(KindHello, 0, hello.Take());
         FrameHeader header{};
         std::vector<std::uint8_t> payload;
-        if (!SendAll(target, helloFrame.data(), helloFrame.size()) || !ReceiveFrame(target, header, payload)) {
+        if (!SendAll(target, helloFrame.data(), helloFrame.size()) || !ReceiveFrame(target, header, payload, MaxHandshakePayload)) {
+            CloseSocket(target);
+            return false;
+        }
+        if (header.kind == KindReject) {
+            const std::string reason(payload.begin(), payload.end());
+            APS5_LOG_ERR("the net service refused the connection: %s", reason.c_str());
+            CloseSocket(target);
+            return false;
+        }
+        Reader challenge(payload.data(), payload.size());
+        const std::uint16_t challengeVersion = challenge.U16();
+        NetBridgeAuth::Nonce serviceNonce{};
+        NetBridgeAuth::Proof serviceProof{};
+        for (auto& byte : serviceNonce) byte = challenge.U8();
+        for (auto& byte : serviceProof) byte = challenge.U8();
+        if (header.kind != KindChallenge || !challenge.Ok() || challengeVersion != ProtocolVersion) {
+            CloseSocket(target);
+            return false;
+        }
+        const auto expected = NetBridgeAuth::MakeProof(config.token, NetBridgeAuth::RoleService, bridgeNonce, serviceNonce);
+        if (!NetBridgeAuth::SameProof(expected, serviceProof)) {
+            APS5_LOG_CHARS_ERR("the net service did not prove that it knows the token; closing the connection");
+            CloseSocket(target);
+            return false;
+        }
+        const auto mine = NetBridgeAuth::MakeProof(config.token, NetBridgeAuth::RoleBridge, bridgeNonce, serviceNonce);
+        const auto authFrame = EncodeFrame(KindAuth, 0, std::vector<std::uint8_t>(mine.begin(), mine.end()));
+        if (!SendAll(target, authFrame.data(), authFrame.size()) || !ReceiveFrame(target, header, payload, MaxHandshakePayload)) {
             CloseSocket(target);
             return false;
         }
