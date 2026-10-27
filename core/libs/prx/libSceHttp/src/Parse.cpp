@@ -30,25 +30,24 @@ extern "C" {
 
 int APS5_VABI sceHttpParseStatusLine(const char* statusLine, size_t lineLen, int32_t* httpMajorVer, int32_t* httpMinorVer,
     int32_t* responseCode, const char** reasonPhrase, size_t* phraseLen) {
-    NetBridgeCall netCall("libSceHttp", __func__, [&](NetBridgeJson& netIn) { netIn.Uint("line_len", lineLen); });
-    if (!statusLine) return netCall.Ret(ERROR_PARSE_HTTP_INVALID_RESPONSE);
-    if (!httpMajorVer || !httpMinorVer || !responseCode || !reasonPhrase || !phraseLen) return netCall.Ret(ERROR_PARSE_HTTP_INVALID_VALUE);
+    if (!statusLine) return ERROR_PARSE_HTTP_INVALID_RESPONSE;
+    if (!httpMajorVer || !httpMinorVer || !responseCode || !reasonPhrase || !phraseLen) return ERROR_PARSE_HTTP_INVALID_VALUE;
 
     *httpMajorVer = 0;
     *httpMinorVer = 0;
-    if (lineLen < 8 || std::memcmp(statusLine, "HTTP/", 5) != 0) return netCall.Ret(ERROR_PARSE_HTTP_INVALID_RESPONSE);
+    if (lineLen < 8 || std::memcmp(statusLine, "HTTP/", 5) != 0) return ERROR_PARSE_HTTP_INVALID_RESPONSE;
 
     size_t index = 5;
-    if (!parseVersionNumber(statusLine, index, httpMajorVer)) return netCall.Ret(ERROR_PARSE_HTTP_INVALID_RESPONSE);
-    if (statusLine[index] != '.') return netCall.Ret(ERROR_PARSE_HTTP_INVALID_RESPONSE);
+    if (!parseVersionNumber(statusLine, index, httpMajorVer)) return ERROR_PARSE_HTTP_INVALID_RESPONSE;
+    if (statusLine[index] != '.') return ERROR_PARSE_HTTP_INVALID_RESPONSE;
     ++index;
-    if (!parseVersionNumber(statusLine, index, httpMinorVer)) return netCall.Ret(ERROR_PARSE_HTTP_INVALID_RESPONSE);
-    if (statusLine[index] != ' ') return netCall.Ret(ERROR_PARSE_HTTP_INVALID_RESPONSE);
+    if (!parseVersionNumber(statusLine, index, httpMinorVer)) return ERROR_PARSE_HTTP_INVALID_RESPONSE;
+    if (statusLine[index] != ' ') return ERROR_PARSE_HTTP_INVALID_RESPONSE;
     ++index;
 
-    if (lineLen - index < 3) return netCall.Ret(ERROR_PARSE_HTTP_INVALID_RESPONSE);
+    if (lineLen - index < 3) return ERROR_PARSE_HTTP_INVALID_RESPONSE;
     if (!isAsciiDigit(statusLine[index]) || !isAsciiDigit(statusLine[index + 1]) || !isAsciiDigit(statusLine[index + 2])) {
-        return netCall.Ret(ERROR_PARSE_HTTP_INVALID_RESPONSE);
+        return ERROR_PARSE_HTTP_INVALID_RESPONSE;
     }
     *responseCode = (statusLine[index] - '0') * 100 + (statusLine[index + 1] - '0') * 10 + (statusLine[index + 2] - '0');
     index += 3;
@@ -57,7 +56,7 @@ int APS5_VABI sceHttpParseStatusLine(const char* statusLine, size_t lineLen, int
     const size_t searched = lineLen - index + 1;
     size_t length = 0;
     while (length != searched && phrase[length] != '\n') ++length;
-    if (length == searched) return netCall.Ret(ERROR_PARSE_HTTP_INVALID_RESPONSE);
+    if (length == searched) return ERROR_PARSE_HTTP_INVALID_RESPONSE;
 
     const size_t consumed = index + length + 1;
     if (consumed > static_cast<size_t>(INT32_MAX)) {
@@ -67,7 +66,7 @@ int APS5_VABI sceHttpParseStatusLine(const char* statusLine, size_t lineLen, int
 
     *reasonPhrase = phrase;
     *phraseLen = length;
-    return netCall.Ret(static_cast<int>(consumed));
+    return static_cast<int>(consumed);
 }
 
 }

@@ -361,6 +361,8 @@ most called traced imports (1 calls in total):
              1 libkernel.prx k+AXqu2-eBc
 ```
 
+With `ANYPS5_NET_OBSERVE` the same thunks write the calls to the network libraries to the observation file, see [network observation](../dev/TRACING.md#network-observation); that needs `--trace-imports` too.
+
 To list every import a title calls during a run that ends without a crash, also set `APS5_TRACE_CALLS_FILE` to a file path. Every 10 seconds the file is rewritten with one line per import called so far, most called first: the number of calls, the library and the import name. It survives a run that is killed, up to its last rewrite.
 
 ```

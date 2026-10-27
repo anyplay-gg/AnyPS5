@@ -54,7 +54,6 @@ int APS5_VABI sceNpUniversalDataSystemCreateEvent(
     NpUniversalDataSystemEvent** new_event,
     NpUniversalDataSystemEventPropertyObject** prop_ptr)
 {
-    NetBridgeCall netCall("libSceNpUniversalDataSystem", __func__);
     if (event_name == nullptr || new_event == nullptr) {
         APS5_INVALID_ARG_EX;
     }
@@ -65,17 +64,15 @@ int APS5_VABI sceNpUniversalDataSystemCreateEvent(
     if (prop_ptr != nullptr) {
         *prop_ptr = &(*new_event)->properties;
     }
-    return netCall.Ret(SCE_NP_UNIVERSAL_DATA_SYSTEM_OK);
+    return SCE_NP_UNIVERSAL_DATA_SYSTEM_OK;
 }
 
 int APS5_VABI sceNpUniversalDataSystemDestroyEvent(NpUniversalDataSystemEvent* event) {
-    NetBridgeCall netCall("libSceNpUniversalDataSystem", __func__);
     events().Release(event);
-    return netCall.Ret(SCE_NP_UNIVERSAL_DATA_SYSTEM_OK);
+    return SCE_NP_UNIVERSAL_DATA_SYSTEM_OK;
 }
 
 int APS5_VABI sceNpUniversalDataSystemPostEvent(int context, int handle, const void* event, uint64_t options) {
-    NetBridgeCall netCall("libSceNpUniversalDataSystem", __func__, [&](NetBridgeJson& netIn) { netIn.Int("context", context); netIn.Int("handle", handle); netIn.Uint("options", options); });
     if (event == nullptr) {
         APS5_INVALID_ARG_EX;
     }
@@ -84,16 +81,15 @@ int APS5_VABI sceNpUniversalDataSystemPostEvent(int context, int handle, const v
         throw std::invalid_argument(std::string(__func__) + ": the event was not created by sceNpUniversalDataSystemCreateEvent or was destroyed");
     }
     post(*posted, context);
-    return netCall.Ret(SCE_NP_UNIVERSAL_DATA_SYSTEM_OK);
+    return SCE_NP_UNIVERSAL_DATA_SYSTEM_OK;
 }
 
 int APS5_VABI sceNpUniversalDataSystemEventEstimateSize(const NpUniversalDataSystemEvent* event, size_t* size) {
-    NetBridgeCall netCall("libSceNpUniversalDataSystem", __func__);
     if (event == nullptr || size == nullptr) {
         APS5_INVALID_ARG_EX;
     }
     *size = NP_UNIVERSAL_DATA_SYSTEM_EMPTY_EVENT_SIZE;
-    return netCall.Ret(SCE_NP_UNIVERSAL_DATA_SYSTEM_OK);
+    return SCE_NP_UNIVERSAL_DATA_SYSTEM_OK;
 }
 
 int APS5_VABI sceNpUniversalDataSystemEventToString(
@@ -102,7 +98,6 @@ int APS5_VABI sceNpUniversalDataSystemEventToString(
     size_t buf_size,
     size_t* string_size)
 {
-    NetBridgeCall netCall("libSceNpUniversalDataSystem", __func__, [&](NetBridgeJson& netIn) { netIn.Uint("buf_size", buf_size); });
     if (event == nullptr) {
         APS5_INVALID_ARG_EX;
     }
@@ -113,7 +108,7 @@ int APS5_VABI sceNpUniversalDataSystemEventToString(
     if (buf != nullptr && buf_size > 0) {
         std::snprintf(buf, buf_size, "%s", NP_UNIVERSAL_DATA_SYSTEM_EMPTY_JSON);
     }
-    return netCall.Ret(SCE_NP_UNIVERSAL_DATA_SYSTEM_OK);
+    return SCE_NP_UNIVERSAL_DATA_SYSTEM_OK;
 }
 
 }

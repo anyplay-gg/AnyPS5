@@ -98,92 +98,80 @@ extern "C" {
 
 // The store dialog has nothing to show: every open finishes at once as cancelled by the user.
 int APS5_VABI sceNpCommerceDialogInitialize() {
- NetBridgeCall netCall("libSceNpCommerce", __func__);
- if (g_status != COMMON_DIALOG_STATUS_NONE) return netCall.Ret(COMMON_DIALOG_ERROR_ALREADY_INITIALIZED);
+ if (g_status != COMMON_DIALOG_STATUS_NONE) return COMMON_DIALOG_ERROR_ALREADY_INITIALIZED;
  g_status = COMMON_DIALOG_STATUS_INITIALIZED;
- return netCall.Ret(0);
+ return 0;
 }
 
 int APS5_VABI sceNpCommerceDialogOpen(const NpCommerceDialogParam* param) {
- NetBridgeCall netCall("libSceNpCommerce", __func__);
- if (param == nullptr) return netCall.Ret(COMMON_DIALOG_ERROR_ARG_NULL);
- if (!ValidateCommonDialogBaseParam(param->base)) return netCall.Ret(COMMON_DIALOG_ERROR_INVALID_ARGUMENT);
- if (g_status == COMMON_DIALOG_STATUS_NONE) return netCall.Ret(COMMON_DIALOG_ERROR_NOT_INITIALIZED);
- if (!validateParam(*param)) return netCall.Ret(COMMON_DIALOG_ERROR_INVALID_ARGUMENT);
+ if (param == nullptr) return COMMON_DIALOG_ERROR_ARG_NULL;
+ if (!ValidateCommonDialogBaseParam(param->base)) return COMMON_DIALOG_ERROR_INVALID_ARGUMENT;
+ if (g_status == COMMON_DIALOG_STATUS_NONE) return COMMON_DIALOG_ERROR_NOT_INITIALIZED;
+ if (!validateParam(*param)) return COMMON_DIALOG_ERROR_INVALID_ARGUMENT;
  g_userData = param->userData;
  g_status = COMMON_DIALOG_STATUS_FINISHED;
- return netCall.Ret(0);
+ return 0;
 }
 
 int APS5_VABI sceNpCommerceDialogUpdateStatus(void) {
- NetBridgeCall netCall("libSceNpCommerce", __func__);
- return netCall.Ret(g_status);
+ return g_status;
 }
 
 int APS5_VABI sceNpCommerceDialogGetStatus(void) {
- NetBridgeCall netCall("libSceNpCommerce", __func__);
- return netCall.Ret(g_status);
+ return g_status;
 }
 
 int APS5_VABI sceNpCommerceDialogGetResult(NpCommerceDialogResult* result) {
- NetBridgeCall netCall("libSceNpCommerce", __func__);
- if (result == nullptr) return netCall.Ret(COMMON_DIALOG_ERROR_ARG_NULL);
- if (g_status == COMMON_DIALOG_STATUS_NONE) return netCall.Ret(COMMON_DIALOG_ERROR_NOT_INITIALIZED);
- if (g_status != COMMON_DIALOG_STATUS_FINISHED) return netCall.Ret(COMMON_DIALOG_ERROR_NOT_FINISHED);
+ if (result == nullptr) return COMMON_DIALOG_ERROR_ARG_NULL;
+ if (g_status == COMMON_DIALOG_STATUS_NONE) return COMMON_DIALOG_ERROR_NOT_INITIALIZED;
+ if (g_status != COMMON_DIALOG_STATUS_FINISHED) return COMMON_DIALOG_ERROR_NOT_FINISHED;
  const auto sdkVersion = compiledSdkVersion();
  result->result = COMMON_DIALOG_RESULT_USER_CANCELED;
  result->authorized = 0;
  result->userData = g_userData;
  if (sdkVersion >= 0x01700000) std::fill(std::begin(result->reserved), std::end(result->reserved), 0);
- return netCall.Ret(COMMON_DIALOG_RESULT_USER_CANCELED);
+ return COMMON_DIALOG_RESULT_USER_CANCELED;
 }
 
 int APS5_VABI sceNpCommerceDialogClose(void) {
- NetBridgeCall netCall("libSceNpCommerce", __func__);
- if (g_status == COMMON_DIALOG_STATUS_NONE) return netCall.Ret(COMMON_DIALOG_ERROR_NOT_INITIALIZED);
- if (g_status != COMMON_DIALOG_STATUS_RUNNING) return netCall.Ret(COMMON_DIALOG_ERROR_NOT_RUNNING);
+ if (g_status == COMMON_DIALOG_STATUS_NONE) return COMMON_DIALOG_ERROR_NOT_INITIALIZED;
+ if (g_status != COMMON_DIALOG_STATUS_RUNNING) return COMMON_DIALOG_ERROR_NOT_RUNNING;
  g_status = COMMON_DIALOG_STATUS_FINISHED;
- return netCall.Ret(0);
+ return 0;
 }
 
 int APS5_VABI sceNpCommerceDialogTerminate() {
- NetBridgeCall netCall("libSceNpCommerce", __func__);
- if (g_status == COMMON_DIALOG_STATUS_NONE) return netCall.Ret(COMMON_DIALOG_ERROR_NOT_INITIALIZED);
+ if (g_status == COMMON_DIALOG_STATUS_NONE) return COMMON_DIALOG_ERROR_NOT_INITIALIZED;
  g_status = COMMON_DIALOG_STATUS_NONE;
- return netCall.Ret(0);
+ return 0;
 }
 
 int APS5_VABI sceNpCommerceHidePsStoreIcon(void) {
- NetBridgeCall netCall("libSceNpCommerce", __func__);
- return netCall.Ret(0);
+ return 0;
 }
 
 int APS5_VABI sceNpCommerceShowPsStoreIcon(int pos) {
- NetBridgeCall netCall("libSceNpCommerce", __func__, [&](NetBridgeJson& netIn) { netIn.Int("pos", pos); });
  (void)pos;
- return netCall.Ret(0);
+ return 0;
 }
 
 int APS5_VABI sceNpCommerceSetPsStoreIconLayout(int layout) {
- NetBridgeCall netCall("libSceNpCommerce", __func__, [&](NetBridgeJson& netIn) { netIn.Int("layout", layout); });
  (void)layout;
- return netCall.Ret(0);
+ return 0;
 }
 
 int APS5_VABI sceNpCommerceDialogOpen2(const NpCommerceDialogParam2* param) {
- NetBridgeCall netCall("libSceNpCommerce", __func__);
- if (param == nullptr) return netCall.Ret(COMMON_DIALOG_ERROR_ARG_NULL);
- if (!ValidateCommonDialogBaseParam(param->base)) return netCall.Ret(COMMON_DIALOG_ERROR_INVALID_ARGUMENT);
- if (g_status == COMMON_DIALOG_STATUS_NONE) return netCall.Ret(COMMON_DIALOG_ERROR_NOT_INITIALIZED);
- if (!validateParam2(*param)) return netCall.Ret(COMMON_DIALOG_ERROR_INVALID_ARGUMENT);
+ if (param == nullptr) return COMMON_DIALOG_ERROR_ARG_NULL;
+ if (!ValidateCommonDialogBaseParam(param->base)) return COMMON_DIALOG_ERROR_INVALID_ARGUMENT;
+ if (g_status == COMMON_DIALOG_STATUS_NONE) return COMMON_DIALOG_ERROR_NOT_INITIALIZED;
+ if (!validateParam2(*param)) return COMMON_DIALOG_ERROR_INVALID_ARGUMENT;
  g_userData = param->userData;
  g_status = COMMON_DIALOG_STATUS_FINISHED;
- return netCall.Ret(0);
+ return 0;
 }
 
 int APS5_VABI sceNpCommerceDialogInitializeInternal() {
-    NetBridgeCall netCall("libSceNpCommerce", __func__);
-    return netCall.Ret(sceNpCommerceDialogInitialize());
+    return sceNpCommerceDialogInitialize();
 }
 
 }

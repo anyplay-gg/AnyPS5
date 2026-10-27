@@ -112,6 +112,10 @@ void NetBridgeDeliverPushEvents_nid_no_patch(void);
 int NetBridgeObserveEnabled_nid_no_patch(void);
 void NetBridgeObserve_nid_no_patch(const NetBridgeObservation* observation);
 void NetBridgeObserveNow_nid_no_patch(const NetBridgeObservation* observation);
+int NetBridgeObserveClaim_nid_no_patch(const char* library, const char* function);
+void* NetBridgeObserveImport_nid_no_patch(void* function, const char* library, const char* name);
+std::size_t NetBridgeObservedExports_nid_no_patch(const char* library);
+int NetBridgeObservedExport_nid_no_patch(const char* library, const char* name);
 
 }
 
@@ -317,6 +321,7 @@ private:
 template <typename TBuild>
 inline void NetBridgeRecord(const char* lib, const char* fn, bool hasRet, std::int32_t ret, TBuild&& build) {
     if (NetBridgeObserveEnabled_nid_no_patch() == 0) return;
+    NetBridgeObserveClaim_nid_no_patch(lib, fn);
     NetBridgeJson in;
     NetBridgeJson out;
     build(in, out);
@@ -329,6 +334,7 @@ inline void NetBridgeRecord(const char* lib, const char* fn, bool hasRet, std::i
 class NetBridgeCall {
 public:
     NetBridgeCall(const char* lib, const char* fn) : lib(lib), fn(fn), on(NetBridgeObserveEnabled_nid_no_patch() != 0) {
+        if (on) NetBridgeObserveClaim_nid_no_patch(lib, fn);
     }
 
     template <typename TBuild>

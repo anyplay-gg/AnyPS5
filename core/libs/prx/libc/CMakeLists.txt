@@ -844,8 +844,10 @@ if(BUILD_TESTING)
         configure_windows_unwind(guest_call_trace_tests)
         add_test(NAME guest_call_trace COMMAND guest_call_trace_tests)
         add_test(NAME guest_call_trace_abort COMMAND guest_call_trace_tests abort)
+        add_test(NAME guest_call_trace_observe COMMAND guest_call_trace_tests observe)
+        set_tests_properties(guest_call_trace_observe PROPERTIES TIMEOUT 60)
         if(WIN32)
-            set_tests_properties(guest_call_trace guest_call_trace_abort PROPERTIES ENVIRONMENT_MODIFICATION
+            set_tests_properties(guest_call_trace guest_call_trace_abort guest_call_trace_observe PROPERTIES ENVIRONMENT_MODIFICATION
                 "PATH=path_list_prepend:$<TARGET_FILE_DIR:libc>")
         endif()
         set_tests_properties(guest_call_trace_abort PROPERTIES TIMEOUT 20 PASS_REGULAR_EXPRESSION

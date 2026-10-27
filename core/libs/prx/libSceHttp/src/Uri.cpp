@@ -178,7 +178,6 @@ int copyOut(const std::string& value, char* out, size_t* require, size_t prepare
 extern "C" {
 
 int APS5_VABI sceHttpUriBuild(char* out, size_t* requiredSize, size_t capacity, const SceHttpUriElement* element, uint32_t option) {
-    NetBridgeCall netCall("libSceHttp", __func__, [&](NetBridgeJson& netIn) { netIn.Uint("capacity", capacity); netIn.Uint("option", option); });
     if (!element) return ERROR_INVALID_URL;
     if (!out && !requiredSize) return ERROR_INVALID_VALUE;
 
@@ -217,7 +216,6 @@ int APS5_VABI sceHttpUriBuild(char* out, size_t* requiredSize, size_t capacity, 
 }
 
 int APS5_VABI sceHttpUriEscape(char* out, size_t* require, size_t prepare, const char* in) {
-    NetBridgeCall netCall("libSceHttp", __func__, [&](NetBridgeJson& netIn) { netIn.Uint("prepare", prepare); });
     if (!in) return ERROR_INVALID_VALUE;
     if (!out && !require) return ERROR_INVALID_VALUE;
 
@@ -238,7 +236,6 @@ int APS5_VABI sceHttpUriEscape(char* out, size_t* require, size_t prepare, const
 }
 
 int APS5_VABI sceHttpUriUnescape(char* out, size_t* requiredSize, size_t capacity, const char* input) {
-    NetBridgeCall netCall("libSceHttp", __func__, [&](NetBridgeJson& netIn) { netIn.Uint("capacity", capacity); });
     if (!input || (!out && !requiredSize)) return ERROR_INVALID_VALUE;
 
     const std::string_view source(input);
@@ -291,28 +288,27 @@ int APS5_VABI sceHttpUriUnescape(char* out, size_t* requiredSize, size_t capacit
 }
 
 int APS5_VABI sceHttpUriMerge(char* merged_url, const char* url, const char* relative_uri, size_t* require, size_t prepare, uint32_t option) {
-    NetBridgeCall netCall("libSceHttp", __func__, [&](NetBridgeJson& netIn) { netIn.Text("url", url); netIn.Uint("prepare", prepare); netIn.Uint("option", option); });
-    if (option != 0 || !url || !relative_uri) return netCall.Ret(ERROR_INVALID_VALUE);
+    if (option != 0 || !url || !relative_uri) return ERROR_INVALID_VALUE;
 
     UriParts base;
-    if (const int result = parseUri(url, base); result != 0) return netCall.Ret(result);
+    if (const int result = parseUri(url, base); result != 0) return result;
     const bool relativeOpaque = isOpaque(relative_uri);
     if (UriParts relative; !relativeOpaque) {
-        if (const int result = parseUri(relative_uri, relative); result != 0) return netCall.Ret(result);
+        if (const int result = parseUri(relative_uri, relative); result != 0) return result;
     }
 
     const size_t urlLength = strnlen(url, URI_MAX_LENGTH);
     const size_t relativeLength = strnlen(relative_uri, URI_MAX_LENGTH);
     const size_t size = poolSize(base) + 2 + (urlLength + relativeLength) * 2;
     if (require) *require = size;
-    if (!merged_url) return netCall.Ret(0);
-    if (prepare < size) return netCall.Ret(ERROR_OUT_OF_MEMORY);
+    if (!merged_url) return 0;
+    if (prepare < size) return ERROR_OUT_OF_MEMORY;
 
     if (!relativeOpaque) {
         std::strncpy(merged_url, relative_uri, size);
         merged_url[size - 1] = '\0';
         if (require) *require = relativeLength + 1;
-        return netCall.Ret(0);
+        return 0;
     }
 
     std::string path = base.path;
@@ -331,12 +327,11 @@ int APS5_VABI sceHttpUriMerge(char* merged_url, const char* url, const char* rel
     element.hostname = hostname.data();
     element.path = path.data();
     element.port = base.port;
-    return netCall.Ret(sceHttpUriBuild(merged_url, nullptr, prepare - (urlLength + relativeLength + 1), &element,
-        URI_BUILD_WITH_SCHEME | URI_BUILD_WITH_HOSTNAME | URI_BUILD_WITH_PORT | URI_BUILD_WITH_PATH | URI_BUILD_WITH_USERNAME | URI_BUILD_WITH_PASSWORD));
+    return sceHttpUriBuild(merged_url, nullptr, prepare - (urlLength + relativeLength + 1), &element,
+        URI_BUILD_WITH_SCHEME | URI_BUILD_WITH_HOSTNAME | URI_BUILD_WITH_PORT | URI_BUILD_WITH_PATH | URI_BUILD_WITH_USERNAME | URI_BUILD_WITH_PASSWORD);
 }
 
 int APS5_VABI sceHttpUriParse(SceHttpUriElement* out, const char* src_url, void* pool, size_t* require, size_t prepare) {
-    NetBridgeCall netCall("libSceHttp", __func__, [&](NetBridgeJson& netIn) { netIn.Uint("prepare", prepare); });
     if (!src_url) return ERROR_INVALID_URL;
     const bool write = out && pool;
     if (!write && !require) return ERROR_INVALID_VALUE;
@@ -374,7 +369,6 @@ int APS5_VABI sceHttpUriParse(SceHttpUriElement* out, const char* src_url, void*
 }
 
 int APS5_VABI sceHttpUriCopy(SceHttpUriElement* out, const SceHttpUriElement* src, void* pool, size_t prepare, size_t* require) {
-    NetBridgeCall netCall("libSceHttp", __func__, [&](NetBridgeJson& netIn) { netIn.Uint("prepare", prepare); });
     if (!src) return ERROR_INVALID_URL;
     const bool write = out && pool;
     if (!write && !require) return ERROR_INVALID_VALUE;
@@ -416,15 +410,14 @@ int APS5_VABI sceHttpUriCopy(SceHttpUriElement* out, const SceHttpUriElement* sr
 }
 
 int APS5_VABI sceHttpUriSweepPath(char* dst, const char* src, size_t srcSize) {
-    NetBridgeCall netCall("libSceHttp", __func__, [&](NetBridgeJson& netIn) { netIn.Uint("src_size", srcSize); });
-    if (srcSize == 0) return netCall.Ret(0);
-    if (!dst || !src) return netCall.Ret(ERROR_INVALID_VALUE);
+    if (srcSize == 0) return 0;
+    if (!dst || !src) return ERROR_INVALID_VALUE;
 
     const size_t length = srcSize - 1;
     if (src[0] != '/') {
         std::memcpy(dst, src, length);
         dst[length] = '\0';
-        return netCall.Ret(0);
+        return 0;
     }
 
     dst[0] = '/';
@@ -454,7 +447,7 @@ int APS5_VABI sceHttpUriSweepPath(char* dst, const char* src, size_t srcSize) {
         end += count;
         pos += count;
     }
-    return netCall.Ret(0);
+    return 0;
 }
 
 }
