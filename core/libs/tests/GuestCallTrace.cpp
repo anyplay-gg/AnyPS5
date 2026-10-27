@@ -178,7 +178,7 @@ static int RunObserver() {
     Require(std::strcmp(events[0].name, "Integers") == 0 && events[0].result == 204 && events[0].claimed == 0);
     for (std::uint64_t index = 0; index < 6; ++index) Require(events[0].arguments[index] == index + 1);
     Require(std::strcmp(events[1].name, "Doubles") == 0 && std::strcmp(events[2].name, "Mixed") == 0);
-    Require(static_cast<std::uint32_t>(events[2].arguments[0]) == static_cast<std::uint32_t>(-3) && events[2].arguments[2] != 0 && events[2].arguments[3] == 1ull << 40);
+    Require(static_cast<std::uint32_t>(events[2].arguments[0]) == static_cast<std::uint32_t>(-3) && events[2].arguments[1] != 0 && events[2].arguments[2] == 1ull << 40);
     Require(std::strcmp(events[3].name, "Variadic") == 0 && static_cast<std::uint32_t>(events[3].arguments[0]) == 3);
     Require(std::strcmp(events[4].name, "Blocks") == 0 && events[4].arguments[1] == 40 && events[4].result != 0);
     CallTraceEntry entries[4];

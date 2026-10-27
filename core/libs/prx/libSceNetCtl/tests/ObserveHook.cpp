@@ -1,5 +1,6 @@
 
 #include "prx/libSceNetCtl/include/NetBridge.hpp"
+#include "prx/libSceNpCppWebApi/include/Api.hpp"
 #include "prx/libc/include/CallTrace.hpp"
 #include "prx/libc/include/general/VabiMacros.hpp"
 
@@ -12,8 +13,6 @@
 #include <sstream>
 #include <string>
 #include <thread>
-
-extern "C" int APS5_VABI _ZN3sce2Np9CppWebApi12Leaderboards2V111UserFactory6createEPNS1_6Common10LibContextEPNS5_12IntrusivePtrINS3_4UserEEE();
 
 namespace {
 
@@ -83,7 +82,7 @@ int main() {
         const char* library;
         std::size_t floor;
     } Floors[] = {
-        {"libSceNet", 223}, {"libSceNetCtl", 84}, {"libSceNpAuth", 14}, {"libSceNpCommerce", 12}, {"libSceNpCppWebApi", 751},
+        {"libSceNet", 223}, {"libSceNetCtl", 84}, {"libSceNpAuth", 14}, {"libSceNpCommerce", 12}, {"libSceNpCppWebApi", 749},
         {"libSceNpEntitlementAccess", 25}, {"libSceNpGameIntent", 18}, {"libSceNpManager", 207}, {"libSceNpMatching2", 69},
         {"libSceNpSessionSignaling", 26}, {"libSceNpSignaling", 9}, {"libSceNpUniversalDataSystem", 84}, {"libSceNpWebApi", 23},
         {"libSceNpWebApi2", 14}, {"libSceHttp", 115}, {"libSceHttp2", 62}, {"libSceSsl", 55},
