@@ -1,9 +1,18 @@
+include(${CMAKE_CURRENT_SOURCE_DIR}/ObservedExports.cmake)
+set(OBSERVED_EXPORTS_INC ${CMAKE_CURRENT_BINARY_DIR}/ObservedExports.inc)
+observed_exports_write(${OBSERVED_EXPORTS_INC} ${LIBS_INCLUDE_DIR}/prx ${NET_OBSERVED_EXPORT_LIBS})
+
 add_library(libSceNetCtl SHARED EXCLUDE_FROM_ALL
         Export.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/src/NetBridge.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/src/NetBridgeObserve.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/NetBridgeObserveHook.cpp
+        ${LIBS_INCLUDE_DIR}/nid/src/NidCompute.cpp
+        ${LIBS_INCLUDE_DIR}/nid/src/Sha1.cpp
 )
-target_include_directories(libSceNetCtl PRIVATE ${LIBS_INCLUDE_DIR})
+target_include_directories(libSceNetCtl PRIVATE ${LIBS_INCLUDE_DIR} ${LIBS_INCLUDE_DIR}/nid/include ${CMAKE_CURRENT_BINARY_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/src)
+set_source_files_properties(${LIBS_INCLUDE_DIR}/nid/src/NidCompute.cpp ${LIBS_INCLUDE_DIR}/nid/src/Sha1.cpp PROPERTIES COMPILE_OPTIONS -fvisibility=hidden)
+set_source_files_properties(${CMAKE_CURRENT_SOURCE_DIR}/src/NetBridgeObserveHook.cpp PROPERTIES OBJECT_DEPENDS ${OBSERVED_EXPORTS_INC})
 configure_windows_unwind(libSceNetCtl)
 if(WIN32)
     target_link_libraries(libSceNetCtl PRIVATE bcrypt)
@@ -41,6 +50,17 @@ if(BUILD_TESTING)
     if(WIN32)
         target_link_libraries(net_bridge_tests PRIVATE ws2_32)
         set_tests_properties(net_bridge PROPERTIES ENVIRONMENT_MODIFICATION
+            "PATH=path_list_prepend:$<TARGET_FILE_DIR:libSceNetCtl>")
+    endif()
+
+    add_test_executable(net_observe_hook_tests ${CMAKE_CURRENT_SOURCE_DIR}/tests/ObserveHook.cpp)
+    target_include_directories(net_observe_hook_tests PRIVATE ${LIBS_INCLUDE_DIR})
+    target_link_libraries(net_observe_hook_tests PRIVATE libSceNetCtl libSceNpCppWebApi libc)
+    configure_windows_unwind(net_observe_hook_tests)
+    add_test(NAME net_observe_hook COMMAND net_observe_hook_tests)
+    set_tests_properties(net_observe_hook PROPERTIES TIMEOUT 60)
+    if(WIN32)
+        set_tests_properties(net_observe_hook PROPERTIES ENVIRONMENT_MODIFICATION
             "PATH=path_list_prepend:$<TARGET_FILE_DIR:libSceNetCtl>")
     endif()
 

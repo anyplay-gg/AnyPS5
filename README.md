@@ -14,7 +14,7 @@ The fork adds the **network bridge** and the nightly toolkit builds that the [An
   - peer-to-peer datagram and stream sockets through the net service.
 
   The bridge is off unless the launcher sets `ANYPS5_NET_ENDPOINT` and `ANYPS5_NET_TOKEN` for one game start. Without them every library behaves as in upstream. Session joins are not wired yet ([debt](docs/dev/debt/libSceNetCtl.md)). The wire format is the [bridge protocol](https://github.com/anyplaynet/network/blob/main/spec/bridge-protocol.md).
-- **Observation mode.** `ANYPS5_NET_OBSERVE` writes the network calls a game makes to a file, in the [observation log format](https://github.com/anyplaynet/network/blob/main/spec/observation-log.md).
+- **Observation mode.** `ANYPS5_NET_OBSERVE` writes the network calls a game makes to a file, in the [observation log format](https://github.com/anyplaynet/network/blob/main/spec/observation-log.md). It needs an executable converted with `--trace-imports`; see [network observation](docs/dev/TRACING.md#network-observation).
 - **Nightly toolkit.** Every push to `main` publishes the [nightly release](https://github.com/anyplaynet/AnyPS5/releases/tag/nightly): relinker and system libraries for Windows and Linux, in the layout the launcher downloads or accepts as a toolkit folder. It is a pre-release, and each build replaces the last.
 
 The bridge follows [the line](https://github.com/anyplaynet/network/blob/main/docs/adr/0021-the-line-is-drawn-at-the-law.md): no Sony servers, code or keys, and only games the player owns. The variables are listed in [ENVIRONMENT](docs/dev/ENVIRONMENT.md#libscenetctl); known gaps are in [docs/dev/debt](docs/dev/debt).

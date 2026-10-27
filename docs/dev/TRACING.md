@@ -24,6 +24,15 @@ Set a switch before starting the emulator. Unless noted, any value enables it. M
 | `APS5_TRACE_VIDEODEC` | Video decoder API calls and decode results. |
 | `APS5_TRACE_WAITS` | Blocking waits aggregated by guest call site, including timeout counts and longest waits, every three seconds. |
 
+## Network observation
+
+`ANYPS5_NET_OBSERVE` writes one JSON line per call a game makes to the network libraries ([observation log](https://github.com/anyplaynet/network/blob/main/spec/observation-log.md)). The exports carry no observation code of their own: an executable converted with `--trace-imports` sends every import through the thunks of the call tracer ([CallTrace.cpp](../../core/libs/prx/libc/src/specifics/x86_64/CallTrace.cpp)), and the observer in [NetBridgeObserveHook.cpp](../../core/libs/prx/libSceNetCtl/src/NetBridgeObserveHook.cpp), which libSceNetCtl registers when it loads, selects the imports of the network libraries from them. Without `--trace-imports` nothing is observed except what an export writes itself.
+
+- **What is observed.** Every export of the libraries in `NET_OBSERVED_EXPORT_LIBS` ([core/libs/CMakeLists.txt](../../core/libs/CMakeLists.txt)). CMake scans their sources for `APS5_VABI` definitions when it configures ([ObservedExports.cmake](../../core/libs/prx/libSceNetCtl/ObservedExports.cmake)), so a new export is observed with no line of its own. An import of one of these libraries that the scan does not know is written under its NID.
+- **What a line holds.** The library and export name, the return value in hex for an export that returns a code (`out.value` for a `bool`), and the arguments listed for the export in [ObservedArguments.inc](../../core/libs/prx/libSceNetCtl/src/ObservedArguments.inc) (register, type, name in the log); an export not listed there has `"in":{}`. The thunk reads the registers when the call starts, so a string argument is read before the export runs.
+- **What an export adds.** An export that writes something back to the game, or answers from the bridge, describes the call itself with `NetBridgeCall` or `NetBridgeRecord`. That claims the call, and the hook writes no second line.
+- **Limits.** Only the executable's own imports are thunked (not those of bundled guest modules, nor a function reached through a pointer). Up to six integer arguments are read; floating-point and stack arguments are not. An exception that leaves an observed export ends the process instead of reaching a handler in the guest, because the return stub has no unwind data. A `longjmp` over an observed call finishes it without a result at the next observed call of the thread (Linux, macOS).
+
 ## GPU and memory
 
 | Switch | Output |
