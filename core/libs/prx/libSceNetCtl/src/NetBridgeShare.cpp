@@ -261,6 +261,11 @@ void Mode(const std::vector<std::uint8_t>& payload) {
     State& state = Share();
     std::lock_guard lock(state.padMutex);
     if (!state.open) return;
+    // TODO(together): once anyplaynet/AnyPS5#30 is in, entering together calls
+    // UserServiceSetGuestUser_nid_postfix(1, name) and leaving it (and Close, and a lost connection)
+    // UserServiceClearGuestUser_nid_postfix(1). Pad port 1 is user index 1. The guest's name is not in
+    // the bridge messages yet (a `guest_name` on `share mode` would carry it). Whichever PR merges
+    // second wires this; see the libScePad debt entry.
     state.mode = mode;
     Neutralize(state);
 }
