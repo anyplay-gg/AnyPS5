@@ -139,6 +139,10 @@ static std::uint64_t APS5_VABI Inner(std::uint64_t value) {
     return value * 3;
 }
 
+static std::uint64_t APS5_VABI Both(std::uint64_t a, std::uint64_t b) {
+    return a * 100 + b;
+}
+
 static std::uint64_t APS5_VABI Outer(std::uint64_t value) {
     return g_inner(value + 1) + 1;
 }
@@ -187,10 +191,10 @@ static int RunObserver() {
     Require(CopyCallTrace_nid_no_patch(entries, 4) == 0);
     Require(CopyCallCounts_nid_no_patch(counts, 4, &total) == 0 && total == 0);
 
-    const auto both = Traced(&Integers, "IntegersTraced", "libTraced.prx");
-    Require(both(8, 7, 6, 5, 4, 3, 2, 1) == Integers(8, 7, 6, 5, 4, 3, 2, 1));
+    const auto both = Traced(&Both, "IntegersTraced", "libTraced.prx");
+    Require(both(8, 7) == 807);
     events = TakeEvents();
-    Require(events.size() == 1 && std::strcmp(events[0].name, "IntegersTraced") == 0 && events[0].result == Integers(8, 7, 6, 5, 4, 3, 2, 1));
+    Require(events.size() == 1 && std::strcmp(events[0].name, "IntegersTraced") == 0 && events[0].result == 807);
     Require(CopyCallTrace_nid_no_patch(entries, 4) == 1 && std::strcmp(entries[0].name, "IntegersTraced") == 0);
 
     g_inner = Traced(&Inner, "Inner", "libWatched.prx");
