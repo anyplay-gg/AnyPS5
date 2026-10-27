@@ -234,6 +234,8 @@ if(BUILD_TESTING)
             ${CMAKE_CURRENT_SOURCE_DIR}/tools/tests/test_select_tests.py)
         add_test(NAME check_main_sync COMMAND ${Python3_EXECUTABLE}
             ${CMAKE_CURRENT_SOURCE_DIR}/tools/tests/test_check_main_sync.py)
+        add_test(NAME sync_upstream COMMAND ${Python3_EXECUTABLE}
+            ${CMAKE_CURRENT_SOURCE_DIR}/tools/tests/test_sync_upstream.py)
         add_test(NAME configure_seed COMMAND ${Python3_EXECUTABLE}
             ${CMAKE_CURRENT_SOURCE_DIR}/tools/tests/test_configure_seed.py ConfigureSeedTests)
         add_test(NAME configure_seed_paths COMMAND ${Python3_EXECUTABLE}
