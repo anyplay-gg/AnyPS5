@@ -10,7 +10,9 @@ Questions and ideas: the [AnyPlay Discord](https://discord.gg/9zYqf8fEsh).
 
 ---
 
-## About AnyPS5 (upstream)
+**English** | [Português (Brasil)](docs/user/README.pt-BR.md) | [Español](docs/user/README.es.md) | [简体中文](docs/user/README.zh-CN.md) | [Русский](docs/user/README.ru.md)
+
+# About
 
 Tool for automatic executables porting to Linux and Windows.
 
