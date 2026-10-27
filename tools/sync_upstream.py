@@ -83,7 +83,7 @@ def upstream_summary(repo, base, upstream):
 def group_of(rows, path):
     for row in rows:
         if any(fork_divergence.matches(pattern, path) for pattern in row["patterns"]):
-            return row["patterns"][0]
+            return row["name"]
     return None
 
 

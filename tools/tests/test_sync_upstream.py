@@ -15,9 +15,9 @@ IDENTITY = {
     "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@example.com",
 }
 DOC = (
-    "| Paths | Why | Sync risk |\n|---|---|---|\n"
-    "| `bridge/` | the bridge | Low |\n"
-    "| `lib/Export.cpp`<br>`docs/dev/FORK.md` | hot spot | High |\n"
+    "| Group | Paths | Why | Sync risk |\n|---|---|---|\n"
+    "| Bridge | `bridge/` | the bridge | Low |\n"
+    "| Hot spot | `lib/Export.cpp`<br>`docs/dev/FORK.md` | hot spot | High |\n"
 )
 
 
@@ -95,7 +95,7 @@ class SyncUpstreamTests(unittest.TestCase):
         self.repo.commit("feat(bridge): hook")
         state, text = sync_upstream.build(arguments(self.repo, None))
         self.assertEqual(state["status"], "clean")
-        self.assertIn("`lib/Export.cpp` - lib/Export.cpp", text)
+        self.assertIn("`lib/Export.cpp` - Hot spot", text)
 
     def test_conflict_commits_the_markers_and_marks_the_pull_request_draft(self):
         self.repo.upstream_pull(13, "clash", "lib/Export.cpp", "one\ntheirs\nthree\n")
@@ -105,7 +105,7 @@ class SyncUpstreamTests(unittest.TestCase):
         self.assertEqual((state["status"], state["draft"], state["push"]), ("conflict", True, True))
         self.assertEqual(state["conflicts"], ["lib/Export.cpp"])
         self.assertTrue(state["title"].endswith("(conflicts)"))
-        self.assertIn("- `lib/Export.cpp` (lib/Export.cpp)", text)
+        self.assertIn("- `lib/Export.cpp` (Hot spot)", text)
         self.assertEqual(self.repo.git("log", "-1", "--format=%s"), sync_upstream.MARKER_SUBJECT)
         self.assertIn("<<<<<<<", (self.repo.path / "lib/Export.cpp").read_text(encoding="utf-8"))
 

@@ -28,11 +28,11 @@ def read_rows(text):
         if not line.startswith("|"):
             continue
         cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
-        if len(cells) < 2:
+        if len(cells) < 3:
             continue
-        patterns = CELL.findall(cells[0])
+        patterns = CELL.findall(cells[1])
         if patterns:
-            rows.append({"patterns": patterns, "why": cells[1]})
+            rows.append({"name": cells[0], "patterns": patterns, "why": cells[2]})
     return rows
 
 
@@ -70,7 +70,7 @@ def render(data, listing=False):
     out = [f"{len(data['files'])} files differ from upstream since {data['base'][:9]}, {len(data['rows'])} documented groups"]
     if listing:
         for row in data["rows"]:
-            out.append(f"- {', '.join(row['patterns'])}: {len(row['files'])} files. {row['why']}")
+            out.append(f"- {row['name']}: {len(row['files'])} files. {row['why']}")
             out += [f"    {path}" for path in row["files"]]
     if data["undocumented"]:
         out.append(f"{len(data['undocumented'])} diverging files are in no row of the table, add them to the table or remove the change:")
