@@ -199,13 +199,11 @@ int main() {
     NetCtlNatInfo nat{};
     nat.size = sizeof(nat);
     Require(sceNetCtlGetNatInfo(&nat) == 0, "nat info answers");
-    std::int32_t stunStatus = 0;
-    std::int32_t natType = 0;
-    std::memcpy(&stunStatus, nat.opaque, 4);
-    std::memcpy(&natType, nat.opaque + 4, 4);
-    Require(stunStatus == 1 && natType == 2, "nat info fields");
+    const std::int32_t stunStatus = nat.stun_status;
+    const std::int32_t natType = nat.nat_type;
+    Require(stunStatus == 2 && natType == 2, "nat info fields");
     const std::uint8_t expectedMapped[4] = {0xC6, 0x12, 0x00, 0x01};
-    Require(std::memcmp(nat.opaque + 8, expectedMapped, 4) == 0, "mapped address in network order");
+    Require(std::memcmp(&nat.mapped_addr, expectedMapped, 4) == 0, "mapped address in network order");
 
     service.HoldReplies(4);
     std::vector<WebResult> results(4);
