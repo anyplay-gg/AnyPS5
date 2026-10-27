@@ -42,6 +42,7 @@
 #include <vector>
 
 extern "C" void CallTraceEnter_nid_no_patch();
+extern "C" void CallTraceReturn_nid_no_patch();
 
 namespace {
 
@@ -50,7 +51,39 @@ struct ImportRecord {
     std::string name;
     std::string library;
     mutable std::atomic<std::uint64_t> calls{0};
+    bool traced = false;
+    void* cookie = nullptr;
 };
+
+struct SavedRegisters {
+    std::uint8_t vector[8][16];
+    std::uint64_t r11, r10, rax, r9, r8, rcx, rdx, rsi, rdi;
+    std::uint64_t returnAddress;
+};
+
+struct SavedResult {
+    std::uint64_t rax;
+    std::uint64_t rdx;
+    std::uint8_t vector[2][16];
+};
+
+struct ObservedFrame {
+    void* cookie;
+    void* state;
+    std::uint64_t slot;
+    std::uint64_t returnAddress;
+    bool claimed;
+};
+
+constexpr std::size_t ObservedDepth = 48;
+
+struct ObservedStack {
+    ObservedFrame frames[ObservedDepth];
+    std::size_t depth = 0;
+};
+
+thread_local ObservedStack t_observed;
+std::atomic<const CallObserver*> g_observer{nullptr};
 
 struct RingSlot {
     std::atomic<std::uint64_t> sequence{0};
@@ -397,6 +430,15 @@ void InstallAbortReport() {
 }
 #endif
 
+void FinishObserved(const ObservedFrame& frame, const std::uint64_t result) {
+    const CallObserver* observer = g_observer.load(std::memory_order_acquire);
+    if (observer == nullptr || observer->leave == nullptr) return;
+    try {
+        observer->leave(frame.cookie, frame.state, result, frame.claimed ? 1 : 0);
+    } catch (...) {
+    }
+}
+
 void* WriteThunk(const ImportRecord& record, const std::size_t index) {
     const std::size_t offset = index * ThunkBytes;
     const std::uint8_t prefix[] = {0x49, 0xbb};
@@ -422,19 +464,83 @@ static_assert(offsetof(ImportRecord, target) == 0);
 
 extern "C" {
 
-void APS5_VABI CallTraceRecord_nid_no_patch(const void* record, std::uint64_t returnAddress) {
-    static_cast<const ImportRecord*>(record)->calls.fetch_add(1, std::memory_order_relaxed);
-    const std::uint64_t sequence = g_sequence.fetch_add(1, std::memory_order_relaxed) + 1;
-    RingSlot& slot = g_ring.load(std::memory_order_relaxed)[sequence % RingCapacity];
-    slot.sequence.store(0, std::memory_order_release);
-    slot.thread.store(CurrentThread(), std::memory_order_relaxed);
-    slot.returnAddress.store(returnAddress, std::memory_order_relaxed);
-    slot.record.store(static_cast<const ImportRecord*>(record), std::memory_order_relaxed);
-    slot.sequence.store(sequence, std::memory_order_release);
+void* APS5_VABI CallTraceRecord_nid_no_patch(const void* recordAddress, std::uint64_t returnAddress, const SavedRegisters* saved) {
+    const auto* record = static_cast<const ImportRecord*>(recordAddress);
+    if (record->traced) {
+        record->calls.fetch_add(1, std::memory_order_relaxed);
+        const std::uint64_t sequence = g_sequence.fetch_add(1, std::memory_order_relaxed) + 1;
+        RingSlot& slot = g_ring.load(std::memory_order_relaxed)[sequence % RingCapacity];
+        slot.sequence.store(0, std::memory_order_release);
+        slot.thread.store(CurrentThread(), std::memory_order_relaxed);
+        slot.returnAddress.store(returnAddress, std::memory_order_relaxed);
+        slot.record.store(record, std::memory_order_relaxed);
+        slot.sequence.store(sequence, std::memory_order_release);
+    }
+    if (record->cookie == nullptr) return nullptr;
+    const CallObserver* observer = g_observer.load(std::memory_order_acquire);
+    ObservedStack& stack = t_observed;
+    if (observer == nullptr || observer->enter == nullptr) return nullptr;
+    const auto slotAddress = reinterpret_cast<std::uint64_t>(&saved->returnAddress);
+    while (stack.depth != 0 && stack.frames[stack.depth - 1].slot <= slotAddress) {
+        ObservedFrame abandoned = stack.frames[--stack.depth];
+        abandoned.claimed = true;
+        FinishObserved(abandoned, 0);
+    }
+    if (stack.depth == ObservedDepth) return nullptr;
+    const std::uint64_t arguments[6] = {saved->rdi, saved->rsi, saved->rdx, saved->rcx, saved->r8, saved->r9};
+    void* state = nullptr;
+    try {
+        state = observer->enter(record->cookie, arguments);
+    } catch (...) {
+    }
+    stack.frames[stack.depth++] = {record->cookie, state, slotAddress, returnAddress, false};
+    return reinterpret_cast<void*>(&CallTraceReturn_nid_no_patch);
+}
+
+std::uint64_t APS5_VABI CallTraceLeave_nid_no_patch(const SavedResult* result, std::uint64_t stackPointer) {
+    ObservedStack& stack = t_observed;
+    while (stack.depth != 0) {
+        const ObservedFrame frame = stack.frames[--stack.depth];
+        if (frame.slot + 8 == stackPointer) {
+            FinishObserved(frame, result->rax);
+            return frame.returnAddress;
+        }
+        if (frame.slot + 8 > stackPointer) break;
+        ObservedFrame abandoned = frame;
+        abandoned.claimed = true;
+        FinishObserved(abandoned, 0);
+    }
+    static constexpr char message[] = "[libc] call observer: the stack does not match an observed call\n";
+#ifdef _WIN32
+    DWORD written = 0;
+    WriteFile(GetStdHandle(STD_ERROR_HANDLE), message, sizeof(message) - 1, &written, nullptr);
+#else
+    [[maybe_unused]] const ssize_t written = ::write(STDERR_FILENO, message, sizeof(message) - 1);
+#endif
+    std::abort();
+}
+
+void SetCallObserver_nid_no_patch(const CallObserver* observer) {
+    g_observer.store(observer, std::memory_order_release);
+}
+
+int CallObserverClaim_nid_no_patch(void* cookie) {
+    ObservedStack& stack = t_observed;
+    for (std::size_t index = stack.depth; index > 0; --index) {
+        if (stack.frames[index - 1].cookie == cookie) {
+            stack.frames[index - 1].claimed = true;
+            return 1;
+        }
+    }
+    return 0;
 }
 
 void* TraceImport_nid_no_patch(void* target, const char* name, const char* library) {
-    if (target == nullptr || name == nullptr || library == nullptr || !Selected(library)) return target;
+    if (target == nullptr || name == nullptr || library == nullptr) return target;
+    const bool traced = Selected(library);
+    const CallObserver* observer = g_observer.load(std::memory_order_acquire);
+    void* cookie = observer != nullptr && observer->select != nullptr ? observer->select(library, name) : nullptr;
+    if (!traced && cookie == nullptr) return target;
     std::lock_guard lock(g_mutex);
     if (g_ring.load(std::memory_order_relaxed) == nullptr) {
         MapThunkArea();
@@ -455,6 +561,8 @@ void* TraceImport_nid_no_patch(void* target, const char* name, const char* libra
     record.target = target;
     record.name = name;
     record.library = library;
+    record.traced = traced;
+    record.cookie = cookie;
     void* thunk = WriteThunk(record, index);
     g_thunkByTarget.emplace(target, thunk);
     g_recordCount.store(index + 1, std::memory_order_release);
@@ -545,7 +653,12 @@ asm(".text\n"
     "    movdqu %xmm7, 112(%rsp)\n"
     "    mov %r11, %rdi\n"
     "    mov 200(%rsp), %rsi\n"
+    "    mov %rsp, %rdx\n"
     "    call " APS5_ASM_SYMBOL("CallTraceRecord_nid_no_patch") "\n"
+    "    test %rax, %rax\n"
+    "    jz 1f\n"
+    "    mov %rax, 200(%rsp)\n"
+    "1:\n"
     "    movdqu 0(%rsp), %xmm0\n"
     "    movdqu 16(%rsp), %xmm1\n"
     "    movdqu 32(%rsp), %xmm2\n"
@@ -566,4 +679,38 @@ asm(".text\n"
     "    pop %rdi\n"
     "    jmp *(%r11)\n"
     APS5_ASM_FUNCTION_END("CallTraceEnter_nid_no_patch"));
+
+asm(".text\n"
+    APS5_ASM_FUNCTION("CallTraceReturn_nid_no_patch")
+    "    push %rbp\n"
+    "    mov %rsp, %rbp\n"
+    "    and $-16, %rsp\n"
+    "    sub $48, %rsp\n"
+    "    mov %rax, 0(%rsp)\n"
+    "    mov %rdx, 8(%rsp)\n"
+    "    movdqu %xmm0, 16(%rsp)\n"
+    "    movdqu %xmm1, 32(%rsp)\n"
+    "    mov %rsp, %rdi\n"
+    "    lea 8(%rbp), %rsi\n"
+    "    call " APS5_ASM_SYMBOL("CallTraceLeave_nid_no_patch") "\n"
+    "    mov %rax, %r11\n"
+    "    mov 0(%rsp), %rax\n"
+    "    mov 8(%rsp), %rdx\n"
+    "    movdqu 16(%rsp), %xmm0\n"
+    "    movdqu 32(%rsp), %xmm1\n"
+    "    mov %rbp, %rsp\n"
+    "    pop %rbp\n"
+    "    jmp *%r11\n"
+    APS5_ASM_FUNCTION_END("CallTraceReturn_nid_no_patch"));
+#else
+#include "prx/libc/include/CallTrace.hpp"
+
+extern "C" {
+void SetCallObserver_nid_no_patch(const CallObserver*) {
+}
+
+int CallObserverClaim_nid_no_patch(void*) {
+    return 0;
+}
+}
 #endif

@@ -15,7 +15,9 @@
 #include <filesystem>
 #include <fstream>
 #include <iterator>
+#include <csetjmp>
 #include <memory>
+#include <mutex>
 #include <source_location>
 #include <string>
 #include <thread>
@@ -85,12 +87,169 @@ static TFunction* Traced(TFunction* function, const char* name, const char* libr
     return reinterpret_cast<TFunction*>(TraceImport_nid_no_patch(reinterpret_cast<void*>(function), name, library));
 }
 
+
+struct ObservedEvent {
+    const char* name;
+    std::uint64_t arguments[6];
+    std::uint64_t result;
+    int claimed;
+};
+
+static std::mutex g_events_mutex;
+static std::vector<ObservedEvent> g_events;
+static std::jmp_buf g_jump;
+
+static void* APS5_VABI SelectObserved(const char* library, const char* name) {
+    if (std::strcmp(library, "libWatched.prx") != 0 && std::strcmp(library, "libTraced.prx") != 0) return nullptr;
+    return const_cast<char*>(name);
+}
+
+struct ObservedState {
+    std::uint64_t arguments[6];
+};
+
+static void* APS5_VABI EnterObserved(void*, const std::uint64_t* arguments) {
+    auto* state = new ObservedState;
+    std::memcpy(state->arguments, arguments, sizeof(state->arguments));
+    return state;
+}
+
+static void APS5_VABI LeaveObserved(void* cookie, void* state, std::uint64_t result, int claimed) {
+    const std::unique_ptr<ObservedState> kept(static_cast<ObservedState*>(state));
+    ObservedEvent event{static_cast<const char*>(cookie), {}, result, claimed};
+    std::memcpy(event.arguments, kept->arguments, sizeof(event.arguments));
+    std::lock_guard lock(g_events_mutex);
+    g_events.push_back(event);
+}
+
+static const CallObserver g_observer{&SelectObserved, &EnterObserved, &LeaveObserved};
+
+static std::vector<ObservedEvent> TakeEvents() {
+    std::lock_guard lock(g_events_mutex);
+    std::vector<ObservedEvent> taken;
+    taken.swap(g_events);
+    return taken;
+}
+
+static std::uint64_t (APS5_VABI* g_inner)(std::uint64_t) = nullptr;
+static std::uint64_t (APS5_VABI* g_thrower)(std::uint64_t) = nullptr;
+static void* g_claim_cookie = nullptr;
+
+static std::uint64_t APS5_VABI Inner(std::uint64_t value) {
+    return value * 3;
+}
+
+static std::uint64_t APS5_VABI Outer(std::uint64_t value) {
+    return g_inner(value + 1) + 1;
+}
+
+static std::uint64_t APS5_VABI Claiming(std::uint64_t value) {
+    return static_cast<std::uint64_t>(CallObserverClaim_nid_no_patch(g_claim_cookie)) + value;
+}
+
+static std::uint64_t APS5_VABI Jumping(std::uint64_t value) {
+    return g_thrower(value);
+}
+
+static std::uint64_t APS5_VABI Thrower(std::uint64_t) {
+    std::longjmp(g_jump, 1);
+}
+
+static int RunObserver() {
+    SetCallObserver_nid_no_patch(&g_observer);
+    const auto integers = Traced(&Integers, "Integers", "libWatched.prx");
+    const auto doubles = Traced(&Doubles, "Doubles", "libWatched.prx");
+    const auto mixed = Traced(&Mixed, "Mixed", "libWatched.prx");
+    const auto variadic = Traced(&Variadic, "Variadic", "libWatched.prx");
+    const auto blocks = Traced(&Blocks, "Blocks", "libWatched.prx");
+    Require(integers != &Integers && doubles != &Doubles && mixed != &Mixed && variadic != &Variadic && blocks != &Blocks);
+    Require(Traced(&Integers, "Integers", "libUnwatched.prx") == &Integers);
+
+    Require(integers(1, 2, 3, 4, 5, 6, 7, 8) == Integers(1, 2, 3, 4, 5, 6, 7, 8));
+    Require(doubles(1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5, 8.5, 9.5, 10.5) == Doubles(1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5, 8.5, 9.5, 10.5));
+    Require(mixed(-3, 0.25, "trace", 1.5f, 1ull << 40) == Mixed(-3, 0.25, "trace", 1.5f, 1ull << 40));
+    const double expected = Variadic(3, 1ull, 0.5, 2ull, 1.5, 3ull, 2.5);
+    Require(variadic(3, 1ull, 0.5, 2ull, 1.5, 3ull, 2.5) == expected);
+    const Block block = blocks(40);
+    Require(block.words[0] == 40 && block.words[3] == 43);
+
+    auto events = TakeEvents();
+    Require(events.size() == 5);
+    Require(std::strcmp(events[0].name, "Integers") == 0 && events[0].result == 204 && events[0].claimed == 0);
+    for (std::uint64_t index = 0; index < 6; ++index) Require(events[0].arguments[index] == index + 1);
+    Require(std::strcmp(events[1].name, "Doubles") == 0 && std::strcmp(events[2].name, "Mixed") == 0);
+    Require(static_cast<std::uint32_t>(events[2].arguments[0]) == static_cast<std::uint32_t>(-3) && events[2].arguments[2] != 0 && events[2].arguments[3] == 1ull << 40);
+    Require(std::strcmp(events[3].name, "Variadic") == 0 && static_cast<std::uint32_t>(events[3].arguments[0]) == 3);
+    Require(std::strcmp(events[4].name, "Blocks") == 0 && events[4].arguments[1] == 40 && events[4].result != 0);
+    CallTraceEntry entries[4];
+    std::uint64_t total = 1;
+    CallTraceCount counts[4];
+    Require(CopyCallTrace_nid_no_patch(entries, 4) == 0);
+    Require(CopyCallCounts_nid_no_patch(counts, 4, &total) == 0 && total == 0);
+
+    const auto both = Traced(&Integers, "IntegersTraced", "libTraced.prx");
+    Require(both(8, 7, 6, 5, 4, 3, 2, 1) == Integers(8, 7, 6, 5, 4, 3, 2, 1));
+    events = TakeEvents();
+    Require(events.size() == 1 && std::strcmp(events[0].name, "IntegersTraced") == 0 && events[0].result == Integers(8, 7, 6, 5, 4, 3, 2, 1));
+    Require(CopyCallTrace_nid_no_patch(entries, 4) == 1 && std::strcmp(entries[0].name, "IntegersTraced") == 0);
+
+    g_inner = Traced(&Inner, "Inner", "libWatched.prx");
+    const auto outer = Traced(&Outer, "Outer", "libWatched.prx");
+    Require(outer(4) == 16);
+    events = TakeEvents();
+    Require(events.size() == 2 && std::strcmp(events[0].name, "Inner") == 0 && events[0].result == 15 && std::strcmp(events[1].name, "Outer") == 0 && events[1].result == 16);
+
+    const auto claiming = Traced(&Claiming, "Claiming", "libWatched.prx");
+    Require(CallObserverClaim_nid_no_patch(g_claim_cookie) == 0);
+    Require(claiming(10) == 10);
+    events = TakeEvents();
+    Require(events.size() == 1 && events[0].claimed == 0);
+    g_claim_cookie = const_cast<char*>(events[0].name);
+    Require(claiming(10) == 11);
+    events = TakeEvents();
+    Require(events.size() == 1 && events[0].claimed == 1);
+
+#ifndef _WIN32
+    const auto jumping = Traced(&Jumping, "Jumping", "libWatched.prx");
+    g_thrower = Traced(&Thrower, "Thrower", "libWatched.prx");
+    if (setjmp(g_jump) == 0) {
+        jumping(1);
+        Require(false);
+    }
+    Require(TakeEvents().empty());
+    Require(g_inner(5) == 15);
+    events = TakeEvents();
+    Require(events.size() == 3);
+    Require(std::strcmp(events[0].name, "Thrower") == 0 && events[0].claimed == 1 && events[0].result == 0);
+    Require(std::strcmp(events[1].name, "Jumping") == 0 && events[1].claimed == 1);
+    Require(std::strcmp(events[2].name, "Inner") == 0 && events[2].claimed == 0 && events[2].result == 15);
+#endif
+
+    constexpr std::uint64_t Workers = 4;
+    constexpr std::uint64_t Calls = 5000;
+    std::vector<std::thread> workers;
+    for (std::uint64_t worker = 0; worker < Workers; ++worker) {
+        workers.emplace_back([worker] {
+            for (std::uint64_t call = 0; call < Calls; ++call) Require(g_inner(worker * Calls + call) == 3 * (worker * Calls + call));
+        });
+    }
+    for (auto& worker : workers) worker.join();
+    events = TakeEvents();
+    Require(events.size() == Workers * Calls);
+    for (const auto& event : events) Require(event.result == 3 * event.arguments[0] && event.claimed == 0);
+
+    SetCallObserver_nid_no_patch(nullptr);
+    std::puts("call observer: ok");
+    return 0;
+}
+
 int main(int argc, char** argv) {
 #ifdef _WIN32
     Require(_putenv_s("APS5_TRACE_CALLS", "libTraced,libOther.prx") == 0);
 #else
     Require(setenv("APS5_TRACE_CALLS", "libTraced,libOther.prx", 1) == 0);
 #endif
+    if (argc > 1 && std::strcmp(argv[1], "observe") == 0) return RunObserver();
     if (argc > 1 && (std::strcmp(argv[1], "abort") == 0 || std::strcmp(argv[1], "abort-race") == 0)) {
 #ifndef _WIN32
         Require(std::signal(SIGABRT, [](int) { _exit(3); }) != SIG_ERR);
