@@ -1,7 +1,5 @@
 #include "prx/libSceNetCtl/include/NetBridge.hpp"
 
-namespace {
-
-__attribute__((used)) int (*const g_netBridgeAnchor)() = &NetBridgeObserveEnabled_nid_no_patch;
-
+extern "C" int NET_BRIDGE_ANCHOR() {
+    return NetBridgeObserveEnabled_nid_no_patch();
 }
