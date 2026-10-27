@@ -109,6 +109,28 @@ class SyncUpstreamTests(unittest.TestCase):
         self.assertEqual(self.repo.git("log", "-1", "--format=%s"), sync_upstream.MARKER_SUBJECT)
         self.assertIn("<<<<<<<", (self.repo.path / "lib/Export.cpp").read_text(encoding="utf-8"))
 
+    def test_workflow_changes_of_upstream_are_taken_out_for_the_token(self):
+        self.repo.write(".github/workflows/b.yml", "name: b\n")
+        self.repo.commit("ci: b")
+        self.repo.git("branch", "-f", "upstream", "main")
+        self.repo.upstream_pull(15, "ci", ".github/workflows/new.yml", "name: new\n")
+        self.repo.on("upstream")
+        self.repo.write(".github/workflows/b.yml", "name: changed\n")
+        self.repo.commit("ci: change b")
+        self.repo.on("main")
+        self.repo.write("bridge/a.cpp", "a\n")
+        self.repo.commit("feat(bridge): add a")
+        out = self.repo.path.parent / (self.repo.path.name + "-strip")
+        sync_upstream.main(["--repo", str(self.repo.path), "--upstream", "upstream", "--main", "main", "--date", "2026-10-27", "--out", str(out)])
+        names = self.repo.git("ls-files", ".github")
+        self.assertIn("new.yml", names)
+        sync_upstream.main(["--repo", str(self.repo.path), "--main", "main", "--date", "2026-10-27", "--out", str(out), "--strip-workflows"])
+        self.assertEqual(self.repo.git("ls-files", ".github"), ".github/workflows/b.yml")
+        self.assertEqual((self.repo.path / ".github/workflows/b.yml").read_text(encoding="utf-8"), "name: b\n")
+        self.assertEqual(self.repo.git("log", "-1", "--format=%s"), sync_upstream.STRIP_SUBJECT)
+        self.assertIn("### Workflow files not included", (out / "body.md").read_text(encoding="utf-8"))
+        self.assertIn("`.github/workflows/new.yml`", (out / "body.md").read_text(encoding="utf-8"))
+
     def test_main_runs_and_writes_the_state_files(self):
         self.repo.upstream_pull(14, "feature", "lib/Other.cpp", "y\n")
         self.repo.on("main")

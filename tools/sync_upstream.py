@@ -11,6 +11,7 @@ import check_main_sync
 import fork_divergence
 
 MARKER_SUBJECT = "chore(sync): merge upstream with unresolved conflicts"
+STRIP_SUBJECT = "ci(sync): keep the fork's workflow files, the sync token cannot push upstream's changes"
 BOT_EMAIL = "41898282+github-actions[bot]@users.noreply.github.com"
 PULL = re.compile(r"^Merge pull request #(\d+) from \S+")
 PREFIX = re.compile(r"^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)(?:\([^)]*\))?!?:")
@@ -100,6 +101,25 @@ def merge(repo, ref, message):
     if not unmerged:
         raise RuntimeError(f"git merge {ref} failed: {result.stderr.strip() or result.stdout.strip()}")
     return unmerged
+
+
+def strip_workflows(args):
+    repo = args.repo
+    changed = [line.split("\t", 1) for line in out(repo, "diff", "--no-renames", "--name-status", args.main, "HEAD", "--", ".github/workflows").splitlines()]
+    if not changed:
+        return []
+    for status, path in changed:
+        if status == "A":
+            run(repo, "rm", "-q", "-f", "--", path)
+        else:
+            run(repo, "checkout", args.main, "--", path)
+    run(repo, "commit", "-q", "-m", STRIP_SUBJECT)
+    return [path for _, path in changed]
+
+
+def stripped_note(paths):
+    lines = ["", "### Workflow files not included", "The workflow token cannot push changes to `.github/workflows`, so this branch keeps the fork's version of every workflow file. Upstream changed these; apply what the fork needs by hand with `git checkout upstream/main -- <file>` and a normal commit:"]
+    return "\n".join(lines + [f"- `{path}`" for path in paths])
 
 
 def build(args):
@@ -206,7 +226,20 @@ def main(argv=None):
     parser.add_argument("--date", required=True)
     parser.add_argument("--doc", default=fork_divergence.DEFAULT_DOC)
     parser.add_argument("--out", type=Path, required=True)
+    parser.add_argument("--strip-workflows", action="store_true", help="restore the fork's workflow files on the checked-out sync branch and add the note to the report in --out")
     args = parser.parse_args(argv)
+    if args.strip_workflows:
+        try:
+            paths = strip_workflows(args)
+        except RuntimeError as error:
+            parser.error(str(error))
+        if paths:
+            report = args.out / "body.md"
+            text = report.read_text(encoding="utf-8")
+            marker = "\n### Tested"
+            report.write_text(text.replace(marker, stripped_note(paths) + "\n" + marker, 1), encoding="utf-8")
+        print(json.dumps({"stripped": paths}))
+        return 0
     try:
         state, text = build(args)
     except RuntimeError as error:

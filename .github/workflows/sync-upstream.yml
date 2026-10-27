@@ -99,11 +99,19 @@ jobs:
           FORCE: ${{ steps.merge.outputs.force }}
           OLD: ${{ steps.merge.outputs.old }}
         run: |
-          if [ "$FORCE" = "true" ]; then
-            git push --force-with-lease="$SYNC_BRANCH:$OLD" origin "$SYNC_BRANCH"
-          else
-            git push origin "$SYNC_BRANCH"
-          fi
+          push() {
+            if [ "$FORCE" = "true" ]; then
+              git push --force-with-lease="$SYNC_BRANCH:$OLD" origin "$SYNC_BRANCH"
+            else
+              git push origin "$SYNC_BRANCH"
+            fi
+          }
+          if push 2> "$RUNNER_TEMP/push.err"; then exit 0; fi
+          cat "$RUNNER_TEMP/push.err"
+          if ! grep -q 'without `workflows` permission' "$RUNNER_TEMP/push.err"; then exit 1; fi
+          echo "::warning::upstream changed workflow files, which the workflow token cannot push; the branch keeps the fork's version of them"
+          python3 "$RUNNER_TEMP/tools/sync_upstream.py" --strip-workflows --main "origin/$BASE" --date "$(date -u +%F)" --out "$RUNNER_TEMP/sync"
+          push
       - name: Open or update the pull request
         id: pr
         if: steps.merge.outputs.status != 'none'
