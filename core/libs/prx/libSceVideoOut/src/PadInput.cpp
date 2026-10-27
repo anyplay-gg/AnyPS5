@@ -13,6 +13,7 @@
 #include "prx/libSceVideoOut/include/DisplayWindow.hpp"
 #include "prx/libSceAgcDriver/Execution/include/Presentation.hpp"
 #include "prx/libSceAgcDriver/Execution/include/Driver.hpp"
+#include "prx/libSceNetCtl/include/NetBridge.hpp"
 #include "prx/libScePad/include/PadState.hpp"
 #include "prx/libScePad/include/Pad.hpp"
 #include "prx/libScePad/include/PadInputTypes.hpp"
@@ -294,6 +295,7 @@ void PadInput::HandleEvent(const SDL_Event& event, DisplayWindow& window) {
     if (requests.toggleFullscreen && window.Handle() != nullptr && event.key.windowID == SDL_GetWindowID(window.Handle())) window.ToggleFullscreen();
     if (requests.togglePerformanceOverlay && window.Handle() != nullptr && event.key.windowID == SDL_GetWindowID(window.Handle())) AgcDriverTogglePerformanceOverlay_nid_postfix();
     if (requests.screenshot && window.Handle() != nullptr && event.key.windowID == SDL_GetWindowID(window.Handle())) AgcDriverRequestScreenshot_nid_postfix();
+    if (requests.stopShare) NetBridgeShareOverride_nid_no_patch(1);
     if (requests.toggleMouse) setMouseMode(!keyboardMouse.MouseMode());
     if (event.type != SDL_MOUSEMOTION) publish(window.FrameNumber(), 0);
 }
@@ -308,6 +310,7 @@ void PadInput::Update(const DisplayWindow& window) {
     }
     if (anyController) SDL_GameControllerUpdate();
     applyOutput();
+    if (shareChord.Advance(NetBridgeShareActive_nid_no_patch() != 0 && slots[0].controller != nullptr && Pad::ShareOverrideChord::Held(slots[0].state.buttons), std::chrono::steady_clock::now())) NetBridgeShareOverride_nid_no_patch(0);
     for (int slot = 0; slot < PAD_MAX_CONTROLLERS; ++slot) {
         if (slots[slot].controller != nullptr) {
             slots[slot].state = sampleController(slot);

@@ -414,6 +414,7 @@ add_shader_recompiler(shader_recompiler_agc_driver libc
 )
 
 target_link_libraries(libSceAgcDriver PRIVATE
+        libSceNetCtl
         shader_recompiler_agc_driver
         decoder_png
         SDL2-static

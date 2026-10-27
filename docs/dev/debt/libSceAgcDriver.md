@@ -274,3 +274,7 @@
 ### Opt-in draw paths
 
 - [Draw finisher](../../../core/libs/prx/libSceAgcDriver/Execution/src/Driver/Draw/DrawPipeline.cpp) (`APS5_DRAW_PIPELINE`) - opt-in. The Linux main-image page table it adds matches what Windows already does by default.
+
+### Functional
+
+- [Share play frame sink](../../../core/libs/prx/libSceAgcDriver/Execution/src/VulkanDevice.cpp) - while a [share](https://github.com/anyplaynet/network/blob/main/spec/share-play.md) runs, a presented frame is read back as for a frame dump and copied into the share worker's ring when its fence signals, up to the share's frame rate, at the display buffer's size and scaled with black bars on the CPU. The copy runs under the presentation mutex and adds the readback's wait of up to `APS5_FLIP_INFLIGHT` frames to the stream's delay, and a frame that has a screenshot or a frame dump of its own is not shared. An HDR10 output is not shared. The frame number in the ring is a count of shared frames, not the game's flip count, and `present_us` is the time the readback retired. Closes when: measured on a PC with the tap on, and a GPU-side export if it costs too much

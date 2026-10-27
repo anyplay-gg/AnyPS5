@@ -16,7 +16,7 @@ While a title has a mouse open (`sceMouseOpen`) and the window is focused, AnyPS
 
 Game-controller bindings are enabled automatically and are not affected by keyboard or mouse overrides in this file.
 
-Supported actions are `Cross`, `Circle`, `Triangle`, `Square`, `L1`, `R1`, `L2`, `R2`, `L3`, `R3`, `Options`, `Up`, `Right`, `Down`, `Left`, `LeftStickLeft`, `LeftStickRight`, `LeftStickUp`, `LeftStickDown`, `RightStickLeft`, `RightStickRight`, `RightStickUp`, `RightStickDown`, `TouchLeft`, `TouchRight`, `StickModifier`, `Shake`, `ToggleMouse`, `ToggleFullscreen` (F11), `TogglePerformanceOverlay` (F10, the [performance overlay](USAGE.md#performance-overlay)), and `Screenshot` (F12, saves the next displayed frame as described in [screenshots](USAGE.md#screenshots)). `ToggleFullscreen`, `TogglePerformanceOverlay` and `Screenshot` accept only keyboard keys.
+Supported actions are `Cross`, `Circle`, `Triangle`, `Square`, `L1`, `R1`, `L2`, `R2`, `L3`, `R3`, `Options`, `Up`, `Right`, `Down`, `Left`, `LeftStickLeft`, `LeftStickRight`, `LeftStickUp`, `LeftStickDown`, `RightStickLeft`, `RightStickRight`, `RightStickUp`, `RightStickDown`, `TouchLeft`, `TouchRight`, `StickModifier`, `Shake`, `ToggleMouse`, `ToggleFullscreen` (F11), `StopShare` (F8), `TogglePerformanceOverlay` (F10, the [performance overlay](USAGE.md#performance-overlay)), and `Screenshot` (F12, saves the next displayed frame as described in [screenshots](USAGE.md#screenshots)). `ToggleFullscreen`, `TogglePerformanceOverlay`, `Screenshot` and `StopShare` accept only keyboard keys.
 
 ### Default bindings
 
@@ -44,6 +44,7 @@ Without an `anyps5-input.ini`, or for actions the file does not mention, these b
 | `ToggleFullscreen` | F11 |
 | `TogglePerformanceOverlay` | F10 |
 | `Screenshot` | F12 |
+| `StopShare` | F8 (ends a running share play at once; holding the pad's View or touchpad button together with Options for a second takes the pad back from the guest) |
 
 For example, this changes Cross to F or Space, moves the left stick to IJKL, uses the mouse buttons for Square and R2, and keeps all other built-in bindings:
 
