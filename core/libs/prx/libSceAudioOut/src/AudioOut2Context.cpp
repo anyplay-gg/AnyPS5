@@ -1,4 +1,5 @@
 #include "prx/libSceAudioOut/include/AudioOut2.hpp"
+#include "prx/libSceNetCtl/include/NetBridge.hpp"
 #include <algorithm>
 #include <chrono>
 #include <cmath>
@@ -209,6 +210,7 @@ static void Render(AudioOut2Context& context, const AudioOut2Grain& grain) {
         sample = std::clamp(sample * MASTER_GAIN, -1.0f, 1.0f);
         if (AudioOut2TraceEnabled()) context.summaryPeak = std::max(context.summaryPeak, std::abs(sample));
     }
+    if (NetBridgeShareActive_nid_no_patch() != 0) NetBridgeShareSubmitAudio_nid_no_patch(context.mix.data(), context.grain);
     if (pad != nullptr) {
         AudioOut2FinishPadMix(pad, context.grain);
         if (context.padDevice != 0) QueuePadGrain(context);
