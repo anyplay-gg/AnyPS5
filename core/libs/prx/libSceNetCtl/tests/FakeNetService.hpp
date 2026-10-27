@@ -27,6 +27,8 @@
 #include <utility>
 #include <vector>
 
+#include "prx/libSceNetCtl/src/NetBridgeAuth.hpp"
+
 namespace FakeNet {
 
 using Bytes = std::vector<std::uint8_t>;
@@ -474,6 +476,20 @@ public:
         return rejected.load();
     }
 
+    int Unanswered() const {
+        return unanswered.load();
+    }
+
+    void ActAsImpostor(bool on) {
+        impostor.store(on);
+    }
+
+    static NetBridgeAuth::Nonce challengeNonce() {
+        NetBridgeAuth::Nonce nonce{};
+        for (std::size_t index = 0; index < nonce.size(); ++index) nonce[index] = static_cast<std::uint8_t>(0x40 + index);
+        return nonce;
+    }
+
     int Unsupported() const {
         return unsupported.load();
     }
@@ -560,17 +576,43 @@ private:
             std::lock_guard lock(mutex);
             receivedFrames.push_back(ReceivedFrame{kind, request, payload});
         }
-        const bool helloOk = kind == 0x0001 && request == 0 && payload.size() == 2 + token.size() && payload[0] == 0 && payload[1] == 0 &&
-            std::equal(token.begin(), token.end(), payload.begin() + 2);
+        const bool helloOk = kind == 0x0001 && request == 0 && payload.size() == 2 + NetBridgeAuth::NonceSize && payload[0] == 1 && payload[1] == 0;
         if (!helloOk) {
             rejected.fetch_add(1);
             const std::string reason = "wrong hello";
             WriteExact(handle, MakeFrame(0x0003, 0, Bytes(reason.begin(), reason.end())));
             return;
         }
+        NetBridgeAuth::Nonce bridgeNonce{};
+        std::copy(payload.begin() + 2, payload.end(), bridgeNonce.begin());
+        const NetBridgeAuth::Nonce serviceNonce = challengeNonce();
+        const Bytes proofToken = impostor.load() ? Bytes(token.size() + 1, 0x99) : token;
+        const auto serviceProof = NetBridgeAuth::MakeProof(proofToken, NetBridgeAuth::RoleService, bridgeNonce, serviceNonce);
+        Bytes challenge;
+        Put16(challenge, 1);
+        challenge.insert(challenge.end(), serviceNonce.begin(), serviceNonce.end());
+        challenge.insert(challenge.end(), serviceProof.begin(), serviceProof.end());
+        if (!WriteExact(handle, MakeFrame(0x0004, 0, challenge))) return;
+        if (!readFrame(handle, kind, request, payload)) {
+            unanswered.fetch_add(1);
+            return;
+        }
+        {
+            std::lock_guard lock(mutex);
+            receivedFrames.push_back(ReceivedFrame{kind, request, payload});
+        }
+        const auto bridgeProof = NetBridgeAuth::MakeProof(token, NetBridgeAuth::RoleBridge, bridgeNonce, serviceNonce);
+        const bool authOk = kind == 0x0005 && request == 0 && payload.size() == NetBridgeAuth::ProofSize &&
+            NetBridgeAuth::SameBytes(payload.data(), bridgeProof.data(), bridgeProof.size());
+        if (!authOk) {
+            rejected.fetch_add(1);
+            const std::string reason = "wrong auth";
+            WriteExact(handle, MakeFrame(0x0003, 0, Bytes(reason.begin(), reason.end())));
+            return;
+        }
         welcomed.fetch_add(1);
         Bytes welcome;
-        Put16(welcome, 0);
+        Put16(welcome, 1);
         Put16(welcome, datagramPort);
         Put16(welcome, streamPort);
         for (int index = 0; index < 16; ++index) welcome.push_back(static_cast<std::uint8_t>(index));
@@ -824,6 +866,8 @@ private:
     std::atomic<int> hold{1};
     std::atomic<int> welcomed{0};
     std::atomic<int> rejected{0};
+    std::atomic<int> unanswered{0};
+    std::atomic<bool> impostor{false};
     std::atomic<int> malformed{0};
     std::atomic<int> unsupported{0};
     std::mutex mutex;

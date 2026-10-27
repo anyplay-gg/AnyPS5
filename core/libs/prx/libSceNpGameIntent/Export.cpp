@@ -1,4 +1,5 @@
 #include "prx/libSceNpGameIntent/include/Api.hpp"
+#include <atomic>
 #include <cstdint>
 #include <cstddef>
 #include <cstring>
@@ -9,47 +10,68 @@
 
 namespace {
 
+constexpr int NpGameIntentErrorNotInitialized = -2141898750;
 constexpr int NpGameIntentErrorInvalidArgument = -2141898748;
 constexpr int NpGameIntentErrorIntentNotFound = -2141898746;
 constexpr int NpGameIntentErrorValueNotFound = -2141898745;
 constexpr int NpGameIntentUserIdInvalid = -1;
+constexpr int NpAppLauncherErrorNotInitialized = -2141898238;
+constexpr int NpAppLauncherErrorInvalidArgument = -2141898236;
+
+std::atomic_bool& NpGameIntentInitialized() {
+    static std::atomic_bool initialized{false};
+    return initialized;
+}
+
+std::atomic_bool& AppLauncherInitialized() {
+    static std::atomic_bool initialized{false};
+    return initialized;
+}
 
 }
 
 extern "C" {
 
 int APS5_VABI sceNpGameIntentGetPropertyValueString(const NpGameIntentData* intentData, const char* key, char* valueBuf, size_t bufSize) {
- NetBridgeCall netCall("libSceNpGameIntent", __func__, [&](NetBridgeJson& netIn) { netIn.Uint("buf_size", bufSize); });
- if (intentData == nullptr || key == nullptr || valueBuf == nullptr || bufSize == 0) {
-  APS5_INVALID_ARG_EX;
- }
+	NetBridgeCall netCall("libSceNpGameIntent", __func__, [&](NetBridgeJson& netIn) { netIn.Uint("buf_size", bufSize); });
+	if (!NpGameIntentInitialized()) {
+		return netCall.Ret(NpGameIntentErrorNotInitialized);
+	}
+	if (intentData == nullptr || key == nullptr || key[0] == '\0' || valueBuf == nullptr || bufSize == 0) {
+		return netCall.Ret(NpGameIntentErrorInvalidArgument);
+	}
 
- valueBuf[0] = '\0';
- return netCall.Ret(NpGameIntentErrorValueNotFound);
+	valueBuf[0] = '\0';
+	return netCall.Ret(NpGameIntentErrorValueNotFound);
 }
 
 int APS5_VABI sceNpGameIntentInitialize(const void* initParam) {
- NetBridgeCall netCall("libSceNpGameIntent", __func__);
- (void)initParam;
- return netCall.Ret(0);
+	NetBridgeCall netCall("libSceNpGameIntent", __func__);
+	(void)initParam;
+	NpGameIntentInitialized() = true;
+	return netCall.Ret(0);
 }
 
 int APS5_VABI sceNpGameIntentReceiveIntent(NpGameIntentInfo* intentInfo) {
- NetBridgeCall netCall("libSceNpGameIntent", __func__);
- if (intentInfo == nullptr) {
-  APS5_INVALID_ARG_EX;
- }
+	NetBridgeCall netCall("libSceNpGameIntent", __func__);
+	if (!NpGameIntentInitialized()) {
+		return netCall.Ret(NpGameIntentErrorNotInitialized);
+	}
+	if (intentInfo == nullptr || intentInfo->size != 0x4140) {
+		return netCall.Ret(NpGameIntentErrorInvalidArgument);
+	}
 
- intentInfo->user_id = NpGameIntentUserIdInvalid;
- std::memset(intentInfo->intent_type, 0, sizeof(intentInfo->intent_type));
- std::memset(&intentInfo->intent_data, 0, sizeof(intentInfo->intent_data));
+	intentInfo->user_id = NpGameIntentUserIdInvalid;
+	std::memset(intentInfo->intent_type, 0, sizeof(intentInfo->intent_type));
+	std::memset(&intentInfo->intent_data, 0, sizeof(intentInfo->intent_data));
 
- return netCall.Ret(NpGameIntentErrorIntentNotFound);
+	return netCall.Ret(NpGameIntentErrorIntentNotFound);
 }
 
 int APS5_VABI sceNpGameIntentTerminate(void) {
- NetBridgeCall netCall("libSceNpGameIntent", __func__);
- return netCall.Ret(0);
+	NetBridgeCall netCall("libSceNpGameIntent", __func__);
+	NpGameIntentInitialized() = false;
+	return netCall.Ret(0);
 }
 
 int APS5_VABI sceNpGameIntentInitParamInit(NpGameIntentInitParam* param) {
@@ -86,17 +108,22 @@ int APS5_VABI sceNpGameIntentVshTerminate(void) {
 int APS5_VABI sceNpAppLauncherInitialize(const void* initParam) {
     NetBridgeCall netCall("libSceNpGameIntent", __func__);
     (void)initParam;
+    AppLauncherInitialized() = true;
     return netCall.Ret(0);
 }
 
-int APS5_VABI sceNpAppLauncherLaunchApp() {
+int APS5_VABI sceNpAppLauncherLaunchApp(std::int32_t arg0, const char* arg2, const char* arg3) {
     NetBridgeCall netCall("libSceNpGameIntent", __func__);
+    (void)arg0;
+    if (!AppLauncherInitialized()) return netCall.Ret(NpAppLauncherErrorNotInitialized);
+    if (arg2 == nullptr || *arg2 == '\0' || (arg3 != nullptr && std::memchr(arg3, '\0', 0x2001) == nullptr)) return netCall.Ret(NpAppLauncherErrorInvalidArgument);
     NotImplemented_nid_no_patch(__func__);
     return netCall.Ret(0);
 }
 
 int APS5_VABI sceNpAppLauncherTerminate() {
     NetBridgeCall netCall("libSceNpGameIntent", __func__);
+    AppLauncherInitialized() = false;
     return netCall.Ret(0);
 }
 

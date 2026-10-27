@@ -2,6 +2,7 @@
 #include "prx/libSceNetCtl/src/NetBridgeWire.hpp"
 #include "prx/libSceNetCtl/tests/FakeNetService.hpp"
 
+#include <algorithm>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
@@ -184,8 +185,10 @@ void TestRealBridgeWireVectors() {
     Require(NetBridgeEnabled_nid_no_patch() == 1, "bridge enabled");
     Require(Service::WaitUntil([&] { return service.Welcomed() == 1; }, 5000), "bridge welcomed");
 
-    const Bytes expectedHello = {0x00, 0x00, 0x73, 0x65, 0x63, 0x72, 0x65, 0x74, 0x01, 0xFE};
-    Require(service.LastPayload(KindHello) == expectedHello, "hello wire payload matches spec");
+    const Bytes hello = service.LastPayload(KindHello);
+    Require(hello.size() == 34 && hello[0] == 0x01 && hello[1] == 0x00, "hello wire payload matches spec");
+    Require(std::any_of(hello.begin() + 2, hello.end(), [](std::uint8_t byte) { return byte != 0; }), "hello nonce is not empty");
+    Require(service.LastPayload(KindAuth).size() == 32, "auth wire payload is one 32-byte proof");
 
     NetBridgeTrafficView traffic{};
     Require(NetBridgeTraffic_nid_no_patch(&traffic) == 1, "traffic view answers");

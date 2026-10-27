@@ -36,6 +36,7 @@ private:
         std::chrono::steady_clock::time_point nextRumbleRefresh{};
         LightBarPacer lightBar;
         TriggerEffectCache triggerEffect;
+        std::uint32_t heldThroughCapture = 0;
     };
 
     explicit PadInput(Pad::InputConfiguration configuration);
@@ -46,6 +47,7 @@ private:
     void openController(int deviceIndex);
     void closeController(int slot);
     PadInputState sampleController(int slot) const;
+    PadInputState handOff(int slot, PadInputState state);
     void applyOutput();
     void enableSensors(int slot);
 
