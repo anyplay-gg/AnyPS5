@@ -5,6 +5,9 @@ add_library(libSceNetCtl SHARED EXCLUDE_FROM_ALL
 )
 target_include_directories(libSceNetCtl PRIVATE ${LIBS_INCLUDE_DIR})
 configure_windows_unwind(libSceNetCtl)
+if(WIN32)
+    target_link_libraries(libSceNetCtl PRIVATE bcrypt)
+endif()
 
 if(BUILD_TESTING)
     add_test_executable(guest_net_ctl_v6_callbacks_tests tests/V6Callbacks.cpp)
@@ -52,6 +55,22 @@ if(BUILD_TESTING)
         set_tests_properties(bridge_protocol PROPERTIES ENVIRONMENT_MODIFICATION
             "PATH=path_list_prepend:$<TARGET_FILE_DIR:libSceNetCtl>")
     endif()
+
+    add_test_executable(net_bridge_auth_tests ${CMAKE_CURRENT_SOURCE_DIR}/tests/NetBridgeAuth.cpp)
+    target_include_directories(net_bridge_auth_tests PRIVATE ${LIBS_INCLUDE_DIR})
+    target_link_libraries(net_bridge_auth_tests PRIVATE libSceNetCtl libc)
+    configure_windows_unwind(net_bridge_auth_tests)
+    if(WIN32)
+        target_link_libraries(net_bridge_auth_tests PRIVATE ws2_32)
+    endif()
+    foreach(mode IN ITEMS vectors impostor)
+        add_test(NAME net_bridge_auth_${mode} COMMAND net_bridge_auth_tests ${mode})
+        set_tests_properties(net_bridge_auth_${mode} PROPERTIES TIMEOUT 30)
+        if(WIN32)
+            set_tests_properties(net_bridge_auth_${mode} PROPERTIES ENVIRONMENT_MODIFICATION
+                "PATH=path_list_prepend:$<TARGET_FILE_DIR:libSceNetCtl>")
+        endif()
+    endforeach()
 
     add_test_executable(net_bridge_off_tests ${CMAKE_CURRENT_SOURCE_DIR}/tests/NetBridgeOff.cpp)
     target_include_directories(net_bridge_off_tests PRIVATE ${LIBS_INCLUDE_DIR})

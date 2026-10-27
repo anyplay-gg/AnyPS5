@@ -516,7 +516,7 @@ The code reads environment names through `getenv`, `IsEnvironmentSet`, `kibSetti
 |------|------|--------|---------|-------------|
 | `ANYPS5_NET_ENDPOINT` | string | `core/libs/prx/libSceNetCtl/src/NetBridge.cpp` |  | loopback address of the net service as 127.0.0.1:port; with `ANYPS5_NET_TOKEN` it turns the net bridge on, and any other host or a malformed value leaves it off ([bridge protocol](https://github.com/anyplaynet/network/blob/main/spec/bridge-protocol.md)) |
 | `ANYPS5_NET_OBSERVE` | string | `core/libs/prx/libSceNetCtl/src/NetBridgeObserve.cpp` |  | file the network library calls are appended to as JSON lines, with or without a net service, plus a `not_implemented` line written to disk before any not-implemented export throws; nothing is opened when unset or empty ([observation log](https://github.com/anyplaynet/network/blob/main/spec/observation-log.md)) |
-| `ANYPS5_NET_TOKEN` | string | `core/libs/prx/libSceNetCtl/src/NetBridge.cpp` |  | secret for this game start as lowercase hex, sent to the net service in the first frame |
+| `ANYPS5_NET_TOKEN` | string | `core/libs/prx/libSceNetCtl/src/NetBridge.cpp` |  | secret for this game start as lowercase hex; the key of the bridge handshake, never sent to the net service |
 
 ### libSceNpEntitlementAccess
 
