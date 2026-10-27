@@ -15,10 +15,17 @@ CTEST_SKIP_STATUS = re.compile(r"SKIP_RETURN_CODE=\d+|SKIP_REGULAR_EXPRESSION_MA
 
 WINDOWS_PREFIX = "agc"
 
+LIVE_SERVICE_TEST = "bridge_e2e_game"
+LIVE_SERVICE = re.compile(r"ANYPS5_NET_ENDPOINT or ANYPS5_NET_TOKEN not set")
+
 
 def device_limitations(output, patterns):
     reasons = [match.group(0) for line in output.splitlines() if (match := re.search(r"skipped,.*", line, re.IGNORECASE))]
     return bool(reasons) and all(any(pattern.search(reason) for pattern in patterns) for reason in reasons)
+
+
+def needs_live_service(name, output):
+    return name == LIVE_SERVICE_TEST and bool(LIVE_SERVICE.search(output))
 
 
 def high_refresh_limitation(output):
@@ -76,11 +83,11 @@ def main(argv=None):
             print(f"{name}: {reason}")
         return 0
     if args.job == "windows":
-        unexpected = [name for name, output in found if not name.startswith(WINDOWS_PREFIX) and not device_limitations(output, (NO_DISPLAY, NO_VULKAN_DEVICE)) and not high_refresh_limitation(output)]
+        unexpected = [name for name, output in found if not name.startswith(WINDOWS_PREFIX) and not needs_live_service(name, output) and not device_limitations(output, (NO_DISPLAY, NO_VULKAN_DEVICE)) and not high_refresh_limitation(output)]
         expected = f"any {WINDOWS_PREFIX}* test, which the runner has no Vulkan driver for, or a test that reports no display or Vulkan device or a display without a 120 Hz mode"
     else:
-        unexpected = [name for name, output in found if not device_limitations(output, (DEVICE_LIMITATION,)) and not high_refresh_limitation(output)]
-        expected = "any test that reports the device limitation it needs, such as narrow subgroups, a missing extension, no display for a Vulkan window or a display without a 120 Hz mode"
+        unexpected = [name for name, output in found if not needs_live_service(name, output) and not device_limitations(output, (DEVICE_LIMITATION,)) and not high_refresh_limitation(output)]
+        expected = "any test that reports the device limitation it needs, such as narrow subgroups, a missing extension, bridge_e2e_game without a live net service, no display for a Vulkan window or a display without a 120 Hz mode"
     for name in unexpected:
         print(f"error: {name} skipped")
     if unexpected:
