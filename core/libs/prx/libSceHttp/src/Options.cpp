@@ -86,74 +86,65 @@ bool SetHttpEpollBinding(int id, HttpEpollHandle epoll, void* argument) {
 extern "C" {
 
 int APS5_VABI sceHttpGetAutoRedirect(int id, int* enable) {
-    NetBridgeCall netCall("libSceHttp", __func__, [&](NetBridgeJson& netIn) { netIn.Int("id", id); });
-    if (!HttpInitialised()) return netCall.Ret(ERROR_BEFORE_INIT);
-    if (!enable) return netCall.Ret(ERROR_INVALID_VALUE);
+    if (!HttpInitialised()) return ERROR_BEFORE_INIT;
+    if (!enable) return ERROR_INVALID_VALUE;
     const auto options = FindHttpOptions(id);
-    if (!options) return netCall.Ret(ERROR_INVALID_ID);
+    if (!options) return ERROR_INVALID_ID;
     *enable = options->autoRedirect ? 1 : 0;
-    return netCall.Ret(0);
+    return 0;
 }
 
 int APS5_VABI sceHttpGetNonblock(int id, int* enable) {
-    NetBridgeCall netCall("libSceHttp", __func__, [&](NetBridgeJson& netIn) { netIn.Int("id", id); });
-    if (!HttpInitialised()) return netCall.Ret(ERROR_BEFORE_INIT);
-    if (!enable) return netCall.Ret(ERROR_INVALID_VALUE);
+    if (!HttpInitialised()) return ERROR_BEFORE_INIT;
+    if (!enable) return ERROR_INVALID_VALUE;
     const auto options = FindHttpOptions(id);
-    if (!options) return netCall.Ret(ERROR_INVALID_ID);
+    if (!options) return ERROR_INVALID_ID;
     *enable = options->nonblock ? 1 : 0;
-    return netCall.Ret(0);
+    return 0;
 }
 
 int APS5_VABI sceHttpTryGetNonblock(int id, int* enable) {
-    NetBridgeCall netCall("libSceHttp", __func__, [&](NetBridgeJson& netIn) { netIn.Int("id", id); });
-    return netCall.Ret(sceHttpGetNonblock(id, enable));
+    return sceHttpGetNonblock(id, enable);
 }
 
 int APS5_VABI sceHttpGetAcceptEncodingGZIPEnabled(int id, int* enable) {
-    NetBridgeCall netCall("libSceHttp", __func__, [&](NetBridgeJson& netIn) { netIn.Int("id", id); });
-    if (!HttpInitialised()) return netCall.Ret(ERROR_BEFORE_INIT);
-    if (!enable) return netCall.Ret(ERROR_INVALID_VALUE);
+    if (!HttpInitialised()) return ERROR_BEFORE_INIT;
+    if (!enable) return ERROR_INVALID_VALUE;
     const auto options = FindHttpOptions(id);
-    if (!options) return netCall.Ret(ERROR_INVALID_ID);
+    if (!options) return ERROR_INVALID_ID;
     *enable = options->acceptEncodingGzip ? 1 : 0;
-    return netCall.Ret(0);
+    return 0;
 }
 
 int APS5_VABI sceHttpSetAcceptEncodingGZIPEnabled(int id, int enable) {
-    NetBridgeCall netCall("libSceHttp", __func__, [&](NetBridgeJson& netIn) { netIn.Int("id", id); netIn.Int("enable", enable); });
-    if (!HttpInitialised()) return netCall.Ret(ERROR_BEFORE_INIT);
-    return netCall.Ret(SetHttpOption(id, &HttpOptions::acceptEncodingGzip, enable != 0) ? 0 : ERROR_INVALID_ID);
+    if (!HttpInitialised()) return ERROR_BEFORE_INIT;
+    return SetHttpOption(id, &HttpOptions::acceptEncodingGzip, enable != 0) ? 0 : ERROR_INVALID_ID;
 }
 
 int APS5_VABI sceHttpGetEpoll(int id, HttpEpollHandle* epoll, void** argument) {
-    NetBridgeCall netCall("libSceHttp", __func__, [&](NetBridgeJson& netIn) { netIn.Int("id", id); });
-    if (!HttpInitialised()) return netCall.Ret(ERROR_BEFORE_INIT);
-    if (!epoll) return netCall.Ret(ERROR_INVALID_VALUE);
+    if (!HttpInitialised()) return ERROR_BEFORE_INIT;
+    if (!epoll) return ERROR_INVALID_VALUE;
     const auto options = FindHttpOptions(id);
-    if (!options) return netCall.Ret(ERROR_INVALID_ID);
+    if (!options) return ERROR_INVALID_ID;
     *epoll = options->epoll;
     if (argument) *argument = options->epollArgument;
-    return netCall.Ret(0);
+    return 0;
 }
 
 int APS5_VABI sceHttpCacheRedirectedConnectionEnabled(int id, int enable) {
-    NetBridgeCall netCall("libSceHttp", __func__, [&](NetBridgeJson& netIn) { netIn.Int("id", id); netIn.Int("enable", enable); });
-    if (!HttpInitialised()) return netCall.Ret(ERROR_BEFORE_INIT);
+    if (!HttpInitialised()) return ERROR_BEFORE_INIT;
     (void)enable;
-    return netCall.Ret(FindHttpOptions(id) ? 0 : ERROR_INVALID_ID);
+    return FindHttpOptions(id) ? 0 : ERROR_INVALID_ID;
 }
 
 int APS5_VABI sceHttpsEnableOptionPrivate(int id, std::uint32_t sslFlags) {
-    NetBridgeCall netCall("libSceHttp", __func__, [&](NetBridgeJson& netIn) { netIn.Int("id", id); netIn.Uint("ssl_flags", sslFlags); });
-    if (!HttpInitialised()) return netCall.Ret(ERROR_BEFORE_INIT);
-    if ((sslFlags & ~PrivateSslFlags) != 0) return netCall.Ret(ERROR_INVALID_VALUE);
-    return netCall.Ret(FindHttpOptions(id) ? 0 : ERROR_INVALID_ID);
+    if (!HttpInitialised()) return ERROR_BEFORE_INIT;
+    if ((sslFlags & ~PrivateSslFlags) != 0) return ERROR_INVALID_VALUE;
+    return FindHttpOptions(id) ? 0 : ERROR_INVALID_ID;
 }
 
 int APS5_VABI sceHttpsDisableOptionPrivate(int id, std::uint32_t sslFlags) {
-    NetBridgeCall netCall("libSceHttp", __func__, [&](NetBridgeJson& netIn) { netIn.Int("id", id); netIn.Uint("ssl_flags", sslFlags); });
-    return netCall.Ret(sceHttpsEnableOptionPrivate(id, sslFlags));
+    return sceHttpsEnableOptionPrivate(id, sslFlags);
 }
 
 }

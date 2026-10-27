@@ -342,32 +342,30 @@ void Http2FlushCookies(int cookieBoxId) {
 extern "C" {
 
 int APS5_VABI sceHttp2AddCookie(int cookieBoxId, const char* url, const char* cookie, std::size_t cookieLength) {
-    NetBridgeCall netCall("libSceHttp2", __func__);
     std::lock_guard lock(g_cookiesMutex);
     CookieBox* box = FindBox(cookieBoxId);
-    if (!box) return netCall.Ret(ERROR_INVALID_ID);
-    if (!url || !cookie || cookieLength == 0) return netCall.Ret(ERROR_INVALID_VALUE);
+    if (!box) return ERROR_INVALID_ID;
+    if (!url || !cookie || cookieLength == 0) return ERROR_INVALID_VALUE;
     Url parsed{};
-    if (const int result = ParseUrl(url, parsed); result != 0) return netCall.Ret(result);
-    return netCall.Ret(StoreCookie(*box, parsed, std::string_view(cookie, cookieLength), Now()));
+    if (const int result = ParseUrl(url, parsed); result != 0) return result;
+    return StoreCookie(*box, parsed, std::string_view(cookie, cookieLength), Now());
 }
 
 int APS5_VABI sceHttp2GetCookie(int cookieBoxId, const char* url, char* cookie, std::size_t* required, std::size_t prepared) {
-    NetBridgeCall netCall("libSceHttp2", __func__);
     std::lock_guard lock(g_cookiesMutex);
     CookieBox* box = FindBox(cookieBoxId);
-    if (!box) return netCall.Ret(ERROR_INVALID_ID);
-    if (!url) return netCall.Ret(ERROR_INVALID_VALUE);
+    if (!box) return ERROR_INVALID_ID;
+    if (!url) return ERROR_INVALID_VALUE;
     Url parsed{};
-    if (const int result = ParseUrl(url, parsed); result == ERROR_REJECTED) return netCall.Ret(ERROR_NOT_FOUND);
-    else if (result != 0) return netCall.Ret(result);
+    if (const int result = ParseUrl(url, parsed); result == ERROR_REJECTED) return ERROR_NOT_FOUND;
+    else if (result != 0) return result;
     RemoveExpired(*box, Now());
     std::vector<const Cookie*> matches;
     for (const Cookie& stored : box->cookies) {
         if (DomainMatches(parsed.host, stored.domain) && PathMatches(parsed.path, stored.path) && (!stored.secure || parsed.secure)) matches.push_back(&stored);
     }
-    if (matches.empty()) return netCall.Ret(ERROR_NOT_FOUND);
-    if (!cookie && !required) return netCall.Ret(ERROR_INVALID_VALUE);
+    if (matches.empty()) return ERROR_NOT_FOUND;
+    if (!cookie && !required) return ERROR_INVALID_VALUE;
     std::stable_sort(matches.begin(), matches.end(), [](const Cookie* left, const Cookie* right) { return left->path.size() > right->path.size(); });
     for (auto run = matches.begin(); run != matches.end();) {
         const auto end = std::find_if(run, matches.end(), [&](const Cookie* match) { return match->path.size() != (*run)->path.size(); });
@@ -379,58 +377,54 @@ int APS5_VABI sceHttp2GetCookie(int cookieBoxId, const char* url, char* cookie, 
     const std::size_t size = header.size() + HEADER_SLACK;
     if (!cookie) {
         *required = size;
-        return netCall.Ret(0);
+        return 0;
     }
     if (prepared < size) {
         if (prepared != 0) cookie[0] = '\0';
-        return netCall.Ret(ERROR_OUT_OF_SIZE);
+        return ERROR_OUT_OF_SIZE;
     }
     header.append({'\0', ' ', '\0'});
     std::memcpy(cookie, header.data(), size);
     if (required) *required = size;
-    return netCall.Ret(0);
+    return 0;
 }
 
 int APS5_VABI sceHttp2GetCookieStats(int cookieBoxId, Http2CookieStats* stats) {
-    NetBridgeCall netCall("libSceHttp2", __func__);
     std::lock_guard lock(g_cookiesMutex);
-    if (!stats) return netCall.Ret(ERROR_INVALID_VALUE);
+    if (!stats) return ERROR_INVALID_VALUE;
     CookieBox* box = FindBox(cookieBoxId);
-    if (!box) return netCall.Ret(ERROR_INVALID_ID);
+    if (!box) return ERROR_INVALID_ID;
     RemoveExpired(*box, Now());
     stats->currentInuseSize = InuseSize(*box);
     stats->currentInuseNum = static_cast<std::uint32_t>(box->cookies.size());
     stats->maxInuseSize = box->maxInuseSize;
     stats->maxInuseNum = box->maxInuseNum;
     stats->removedNum = box->removedNum;
-    return netCall.Ret(0);
+    return 0;
 }
 
 int APS5_VABI sceHttp2SetCookieMaxNum(int cookieBoxId, std::uint32_t num) {
-    NetBridgeCall netCall("libSceHttp2", __func__);
     std::lock_guard lock(g_cookiesMutex);
     CookieBox* box = FindBox(cookieBoxId);
-    if (!box) return netCall.Ret(ERROR_INVALID_ID);
+    if (!box) return ERROR_INVALID_ID;
     box->maxNum = num;
-    return netCall.Ret(0);
+    return 0;
 }
 
 int APS5_VABI sceHttp2SetCookieMaxNumPerDomain(int cookieBoxId, std::uint32_t num) {
-    NetBridgeCall netCall("libSceHttp2", __func__);
     std::lock_guard lock(g_cookiesMutex);
     CookieBox* box = FindBox(cookieBoxId);
-    if (!box) return netCall.Ret(ERROR_INVALID_ID);
+    if (!box) return ERROR_INVALID_ID;
     box->maxNumPerDomain = num;
-    return netCall.Ret(0);
+    return 0;
 }
 
 int APS5_VABI sceHttp2SetCookieMaxSize(int cookieBoxId, std::uint32_t size) {
-    NetBridgeCall netCall("libSceHttp2", __func__);
     std::lock_guard lock(g_cookiesMutex);
     CookieBox* box = FindBox(cookieBoxId);
-    if (!box) return netCall.Ret(ERROR_INVALID_ID);
+    if (!box) return ERROR_INVALID_ID;
     box->maxSize = size;
-    return netCall.Ret(0);
+    return 0;
 }
 
 }

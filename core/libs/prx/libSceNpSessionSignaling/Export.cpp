@@ -87,220 +87,194 @@ static int CreateContext(const SessionSignalingContextParam<TConnectionCallback>
 extern "C" {
 
 int APS5_VABI sceNpSessionSignalingInitialize(const SessionSignalingInitParam* param) {
-    NetBridgeCall netCall("libSceNpSessionSignaling", __func__);
     std::lock_guard lock(g_mutex);
-    if (g_initialized) return netCall.Ret(SCE_NP_SESSION_SIGNALING_ERROR_ALREADY_INITIALIZED);
-    if (!param || !param->poolSize) return netCall.Ret(SCE_NP_SESSION_SIGNALING_ERROR_INVALID_ARGUMENT);
+    if (g_initialized) return SCE_NP_SESSION_SIGNALING_ERROR_ALREADY_INITIALIZED;
+    if (!param || !param->poolSize) return SCE_NP_SESSION_SIGNALING_ERROR_INVALID_ARGUMENT;
     for (std::uint32_t index = 0; index < g_contexts.size(); ++index) {
         g_contexts[index] = {1000 + index, 0, false};
     }
     g_initialized = true;
-    return netCall.Ret(0);
+    return 0;
 }
 
 int APS5_VABI sceNpSessionSignalingActivateSession(std::uint32_t contextId, const char* sessionId, std::uint32_t sessionType, const SessionSignalingSessionParam* param, std::uint32_t* groupId) {
-    NetBridgeCall netCall("libSceNpSessionSignaling", __func__, [&](NetBridgeJson& netIn) { netIn.Uint("context_id", contextId); netIn.Uint("session_type", sessionType); });
     std::lock_guard lock(g_mutex);
-    if (!g_initialized) return netCall.Ret(SCE_NP_SESSION_SIGNALING_ERROR_NOT_INITIALIZED);
-    if (!sessionId || !param || !groupId) return netCall.Ret(SCE_NP_SESSION_SIGNALING_ERROR_INVALID_ARGUMENT);
-    if (!FindContext(contextId)) return netCall.Ret(SCE_NP_SESSION_SIGNALING_ERROR_CONTEXT_NOT_FOUND);
-    if ((param->mode == 1 && param->option != 0) || (param->mode == 2 && param->option == 0)) return netCall.Ret(SCE_NP_SESSION_SIGNALING_ERROR_INVALID_ARGUMENT);
-    return netCall.Ret(SCE_NP_SESSION_SIGNALING_ERROR_UNAVAILABLE);
+    if (!g_initialized) return SCE_NP_SESSION_SIGNALING_ERROR_NOT_INITIALIZED;
+    if (!sessionId || !param || !groupId) return SCE_NP_SESSION_SIGNALING_ERROR_INVALID_ARGUMENT;
+    if (!FindContext(contextId)) return SCE_NP_SESSION_SIGNALING_ERROR_CONTEXT_NOT_FOUND;
+    if ((param->mode == 1 && param->option != 0) || (param->mode == 2 && param->option == 0)) return SCE_NP_SESSION_SIGNALING_ERROR_INVALID_ARGUMENT;
+    return SCE_NP_SESSION_SIGNALING_ERROR_UNAVAILABLE;
 }
 
 int APS5_VABI sceNpSessionSignalingCreateContext2(const SessionSignalingContextParam2* param, std::uint32_t* contextId) {
-    NetBridgeCall netCall("libSceNpSessionSignaling", __func__);
-    return netCall.Ret(CreateContext(param, contextId));
+    return CreateContext(param, contextId);
 }
 
 int APS5_VABI sceNpSessionSignalingCreateContext(const SessionSignalingContextParam1* param, std::uint32_t* contextId) {
-    NetBridgeCall netCall("libSceNpSessionSignaling", __func__);
-    return netCall.Ret(CreateContext(param, contextId));
+    return CreateContext(param, contextId);
 }
 
 int APS5_VABI sceNpSessionSignalingDeactivate(std::uint32_t contextId, std::uint32_t connectionId) {
-    NetBridgeCall netCall("libSceNpSessionSignaling", __func__, [&](NetBridgeJson& netIn) { netIn.Uint("context_id", contextId); netIn.Uint("connection_id", connectionId); });
     std::lock_guard lock(g_mutex);
-    if (!g_initialized) return netCall.Ret(SCE_NP_SESSION_SIGNALING_ERROR_NOT_INITIALIZED);
-    if (!FindContext(contextId)) return netCall.Ret(SCE_NP_SESSION_SIGNALING_ERROR_CONTEXT_NOT_FOUND);
-    return netCall.Ret(SCE_NP_SESSION_SIGNALING_ERROR_GROUP_NOT_FOUND);
+    if (!g_initialized) return SCE_NP_SESSION_SIGNALING_ERROR_NOT_INITIALIZED;
+    if (!FindContext(contextId)) return SCE_NP_SESSION_SIGNALING_ERROR_CONTEXT_NOT_FOUND;
+    return SCE_NP_SESSION_SIGNALING_ERROR_GROUP_NOT_FOUND;
 }
 
 int APS5_VABI sceNpSessionSignalingDestroyContext(std::uint32_t contextId) {
-    NetBridgeCall netCall("libSceNpSessionSignaling", __func__, [&](NetBridgeJson& netIn) { netIn.Uint("context_id", contextId); });
     std::lock_guard lock(g_mutex);
-    if (!g_initialized) return netCall.Ret(SCE_NP_SESSION_SIGNALING_ERROR_NOT_INITIALIZED);
+    if (!g_initialized) return SCE_NP_SESSION_SIGNALING_ERROR_NOT_INITIALIZED;
     auto* context = FindContext(contextId);
-    if (!context) return netCall.Ret(SCE_NP_SESSION_SIGNALING_ERROR_CONTEXT_NOT_FOUND);
+    if (!context) return SCE_NP_SESSION_SIGNALING_ERROR_CONTEXT_NOT_FOUND;
     context->active = false;
     const auto nextId = context->id + static_cast<std::uint32_t>(g_contexts.size());
     context->id = nextId < 100001 ? nextId : 1000 + contextId % static_cast<std::uint32_t>(g_contexts.size());
-    return netCall.Ret(0);
+    return 0;
 }
 
 int APS5_VABI sceNpSessionSignalingGetConnectionInfo(std::uint32_t contextId, std::uint32_t connectionId, std::uint32_t code, SessionSignalingConnectionInfo* info) {
-    NetBridgeCall netCall("libSceNpSessionSignaling", __func__, [&](NetBridgeJson& netIn) { netIn.Uint("context_id", contextId); netIn.Uint("connection_id", connectionId); netIn.Uint("code", code); });
     std::lock_guard lock(g_mutex);
-    if (!g_initialized) return netCall.Ret(SCE_NP_SESSION_SIGNALING_ERROR_NOT_INITIALIZED);
-    if (!info) return netCall.Ret(SCE_NP_SESSION_SIGNALING_ERROR_INVALID_ARGUMENT);
-    if (!FindContext(contextId)) return netCall.Ret(SCE_NP_SESSION_SIGNALING_ERROR_CONTEXT_NOT_FOUND);
-    return netCall.Ret(SCE_NP_SESSION_SIGNALING_ERROR_CONN_NOT_FOUND);
+    if (!g_initialized) return SCE_NP_SESSION_SIGNALING_ERROR_NOT_INITIALIZED;
+    if (!info) return SCE_NP_SESSION_SIGNALING_ERROR_INVALID_ARGUMENT;
+    if (!FindContext(contextId)) return SCE_NP_SESSION_SIGNALING_ERROR_CONTEXT_NOT_FOUND;
+    return SCE_NP_SESSION_SIGNALING_ERROR_CONN_NOT_FOUND;
 }
 
 int APS5_VABI sceNpSessionSignalingActivateUser(std::uint32_t contextId, const SessionSignalingPeerAddress* peerAddress, std::uint32_t* connectionId) {
-    NetBridgeCall netCall("libSceNpSessionSignaling", __func__, [&](NetBridgeJson& netIn) { netIn.Uint("context_id", contextId); });
     std::lock_guard lock(g_mutex);
-    if (!g_initialized) return netCall.Ret(SCE_NP_SESSION_SIGNALING_ERROR_NOT_INITIALIZED);
-    if (!peerAddress || !connectionId) return netCall.Ret(SCE_NP_SESSION_SIGNALING_ERROR_INVALID_ARGUMENT);
-    if (!FindContext(contextId)) return netCall.Ret(SCE_NP_SESSION_SIGNALING_ERROR_CONTEXT_NOT_FOUND);
-    return netCall.Ret(SCE_NP_SESSION_SIGNALING_ERROR_UNAVAILABLE);
+    if (!g_initialized) return SCE_NP_SESSION_SIGNALING_ERROR_NOT_INITIALIZED;
+    if (!peerAddress || !connectionId) return SCE_NP_SESSION_SIGNALING_ERROR_INVALID_ARGUMENT;
+    if (!FindContext(contextId)) return SCE_NP_SESSION_SIGNALING_ERROR_CONTEXT_NOT_FOUND;
+    return SCE_NP_SESSION_SIGNALING_ERROR_UNAVAILABLE;
 }
 
 int APS5_VABI sceNpSessionSignalingGetConnectionFromPeerAddress2(std::uint32_t contextId, std::uint32_t groupId, const SessionSignalingPeerAddress* peerAddress, std::uint32_t* connectionId) {
-    NetBridgeCall netCall("libSceNpSessionSignaling", __func__, [&](NetBridgeJson& netIn) { netIn.Uint("context_id", contextId); netIn.Uint("group_id", groupId); });
     std::lock_guard lock(g_mutex);
-    if (!g_initialized) return netCall.Ret(SCE_NP_SESSION_SIGNALING_ERROR_NOT_INITIALIZED);
-    if (!peerAddress || !connectionId) return netCall.Ret(SCE_NP_SESSION_SIGNALING_ERROR_INVALID_ARGUMENT);
-    if (!FindContext(contextId)) return netCall.Ret(SCE_NP_SESSION_SIGNALING_ERROR_CONTEXT_NOT_FOUND);
-    return netCall.Ret(SCE_NP_SESSION_SIGNALING_ERROR_GROUP_NOT_FOUND);
+    if (!g_initialized) return SCE_NP_SESSION_SIGNALING_ERROR_NOT_INITIALIZED;
+    if (!peerAddress || !connectionId) return SCE_NP_SESSION_SIGNALING_ERROR_INVALID_ARGUMENT;
+    if (!FindContext(contextId)) return SCE_NP_SESSION_SIGNALING_ERROR_CONTEXT_NOT_FOUND;
+    return SCE_NP_SESSION_SIGNALING_ERROR_GROUP_NOT_FOUND;
 }
 
 int APS5_VABI sceNpSessionSignalingTerminate(void) {
-    NetBridgeCall netCall("libSceNpSessionSignaling", __func__);
     std::lock_guard lock(g_mutex);
-    if (!g_initialized) return netCall.Ret(SCE_NP_SESSION_SIGNALING_ERROR_NOT_INITIALIZED);
+    if (!g_initialized) return SCE_NP_SESSION_SIGNALING_ERROR_NOT_INITIALIZED;
     g_initialized = false;
     for (auto& context : g_contexts) context.active = false;
-    return netCall.Ret(0);
+    return 0;
 }
 
 int32_t APS5_VABI sceNpSessionSignalingGetConnectionStatus(std::uint32_t contextId, std::uint32_t connectionId, std::int32_t* status, std::uint32_t* peerAddress, std::uint16_t* peerPort) {
- NetBridgeCall netCall("libSceNpSessionSignaling", __func__, [&](NetBridgeJson& netIn) { netIn.Uint("context_id", contextId); netIn.Uint("connection_id", connectionId); });
  (void)connectionId;
  (void)peerAddress;
  (void)peerPort;
  std::lock_guard lock(g_mutex);
- if (!g_initialized) return netCall.Ret(SCE_NP_SESSION_SIGNALING_ERROR_NOT_INITIALIZED);
- if (!status) return netCall.Ret(SCE_NP_SESSION_SIGNALING_ERROR_INVALID_ARGUMENT);
- if (!FindContext(contextId)) return netCall.Ret(SCE_NP_SESSION_SIGNALING_ERROR_CONTEXT_NOT_FOUND);
- return netCall.Ret(SCE_NP_SESSION_SIGNALING_ERROR_CONN_NOT_FOUND);
+ if (!g_initialized) return SCE_NP_SESSION_SIGNALING_ERROR_NOT_INITIALIZED;
+ if (!status) return SCE_NP_SESSION_SIGNALING_ERROR_INVALID_ARGUMENT;
+ if (!FindContext(contextId)) return SCE_NP_SESSION_SIGNALING_ERROR_CONTEXT_NOT_FOUND;
+ return SCE_NP_SESSION_SIGNALING_ERROR_CONN_NOT_FOUND;
 }
 
 int32_t APS5_VABI sceNpSessionSignalingGetLocalNetInfo(std::uint32_t contextId, SessionSignalingLocalNetInfo* info) {
- NetBridgeCall netCall("libSceNpSessionSignaling", __func__, [&](NetBridgeJson& netIn) { netIn.Uint("context_id", contextId); });
  (void)contextId;
  std::lock_guard lock(g_mutex);
- if (!g_initialized) return netCall.Ret(SCE_NP_SESSION_SIGNALING_ERROR_NOT_INITIALIZED);
- if (!info) return netCall.Ret(SCE_NP_SESSION_SIGNALING_ERROR_INVALID_ARGUMENT);
- return netCall.Ret(SCE_NP_SESSION_SIGNALING_ERROR_UNAVAILABLE);
+ if (!g_initialized) return SCE_NP_SESSION_SIGNALING_ERROR_NOT_INITIALIZED;
+ if (!info) return SCE_NP_SESSION_SIGNALING_ERROR_INVALID_ARGUMENT;
+ return SCE_NP_SESSION_SIGNALING_ERROR_UNAVAILABLE;
 }
 
 int APS5_VABI sceNpSessionSignalingRequestPrepare(uint32_t contextId, uint32_t* requestId) {
- NetBridgeCall netCall("libSceNpSessionSignaling", __func__, [&](NetBridgeJson& netIn) { netIn.Uint("context_id", contextId); });
  std::lock_guard lock(g_mutex);
- if (!g_initialized) return netCall.Ret(SCE_NP_SESSION_SIGNALING_ERROR_NOT_INITIALIZED);
- if (!requestId) return netCall.Ret(SCE_NP_SESSION_SIGNALING_ERROR_INVALID_ARGUMENT);
- if (!FindContext(contextId)) return netCall.Ret(SCE_NP_SESSION_SIGNALING_ERROR_CONTEXT_NOT_FOUND);
- return netCall.Ret(SCE_NP_SESSION_SIGNALING_ERROR_UNAVAILABLE);
+ if (!g_initialized) return SCE_NP_SESSION_SIGNALING_ERROR_NOT_INITIALIZED;
+ if (!requestId) return SCE_NP_SESSION_SIGNALING_ERROR_INVALID_ARGUMENT;
+ if (!FindContext(contextId)) return SCE_NP_SESSION_SIGNALING_ERROR_CONTEXT_NOT_FOUND;
+ return SCE_NP_SESSION_SIGNALING_ERROR_UNAVAILABLE;
 }
 
 int APS5_VABI sceNpSessionSignalingGetMemoryInfo(SessionSignalingMemoryInfo* memoryInfo) {
-    NetBridgeCall netCall("libSceNpSessionSignaling", __func__);
     NotImplemented_nid_no_patch(__func__);
-    return netCall.Ret(0);
+    return 0;
 }
 
 int APS5_VABI sceNpSessionSignalingGetConnectionStatistics(SessionSignalingConnectionStatistics* statistics) {
-    NetBridgeCall netCall("libSceNpSessionSignaling", __func__);
     NotImplemented_nid_no_patch(__func__);
-    return netCall.Ret(0);
+    return 0;
 }
 
 int APS5_VABI sceNpSessionSignalingGetConnectionFromPeerAddress(std::uint32_t contextId, const SessionSignalingPeerAddress* peerAddress, std::uint32_t* connectionId) {
-    NetBridgeCall netCall("libSceNpSessionSignaling", __func__, [&](NetBridgeJson& netIn) { netIn.Uint("context_id", contextId); });
     std::lock_guard lock(g_mutex);
-    if (!g_initialized) return netCall.Ret(SCE_NP_SESSION_SIGNALING_ERROR_NOT_INITIALIZED);
-    if (!peerAddress || !connectionId) return netCall.Ret(SCE_NP_SESSION_SIGNALING_ERROR_INVALID_ARGUMENT);
-    if (!FindContext(contextId)) return netCall.Ret(SCE_NP_SESSION_SIGNALING_ERROR_CONTEXT_NOT_FOUND);
-    return netCall.Ret(SCE_NP_SESSION_SIGNALING_ERROR_CONN_NOT_FOUND);
+    if (!g_initialized) return SCE_NP_SESSION_SIGNALING_ERROR_NOT_INITIALIZED;
+    if (!peerAddress || !connectionId) return SCE_NP_SESSION_SIGNALING_ERROR_INVALID_ARGUMENT;
+    if (!FindContext(contextId)) return SCE_NP_SESSION_SIGNALING_ERROR_CONTEXT_NOT_FOUND;
+    return SCE_NP_SESSION_SIGNALING_ERROR_CONN_NOT_FOUND;
 }
 
 int APS5_VABI sceNpSessionSignalingGetGroupFromSessionId(std::uint32_t contextId, const char* sessionId, std::uint32_t* groupId) {
-    NetBridgeCall netCall("libSceNpSessionSignaling", __func__, [&](NetBridgeJson& netIn) { netIn.Uint("context_id", contextId); });
     std::lock_guard lock(g_mutex);
-    if (!g_initialized) return netCall.Ret(SCE_NP_SESSION_SIGNALING_ERROR_NOT_INITIALIZED);
-    if (!sessionId || !groupId) return netCall.Ret(SCE_NP_SESSION_SIGNALING_ERROR_INVALID_ARGUMENT);
-    if (!FindContext(contextId)) return netCall.Ret(SCE_NP_SESSION_SIGNALING_ERROR_CONTEXT_NOT_FOUND);
-    return netCall.Ret(SCE_NP_SESSION_SIGNALING_ERROR_GROUP_NOT_FOUND);
+    if (!g_initialized) return SCE_NP_SESSION_SIGNALING_ERROR_NOT_INITIALIZED;
+    if (!sessionId || !groupId) return SCE_NP_SESSION_SIGNALING_ERROR_INVALID_ARGUMENT;
+    if (!FindContext(contextId)) return SCE_NP_SESSION_SIGNALING_ERROR_CONTEXT_NOT_FOUND;
+    return SCE_NP_SESSION_SIGNALING_ERROR_GROUP_NOT_FOUND;
 }
 
 int APS5_VABI sceNpSessionSignalingGetGroupInfo(std::uint32_t contextId, std::uint32_t groupId, SessionSignalingGroupInfo* groupInfo) {
-    NetBridgeCall netCall("libSceNpSessionSignaling", __func__, [&](NetBridgeJson& netIn) { netIn.Uint("context_id", contextId); netIn.Uint("group_id", groupId); });
     (void)groupId;
     std::lock_guard lock(g_mutex);
-    if (!g_initialized) return netCall.Ret(SCE_NP_SESSION_SIGNALING_ERROR_NOT_INITIALIZED);
-    if (!groupInfo) return netCall.Ret(SCE_NP_SESSION_SIGNALING_ERROR_INVALID_ARGUMENT);
-    if (!FindContext(contextId)) return netCall.Ret(SCE_NP_SESSION_SIGNALING_ERROR_CONTEXT_NOT_FOUND);
-    return netCall.Ret(SCE_NP_SESSION_SIGNALING_ERROR_GROUP_NOT_FOUND);
+    if (!g_initialized) return SCE_NP_SESSION_SIGNALING_ERROR_NOT_INITIALIZED;
+    if (!groupInfo) return SCE_NP_SESSION_SIGNALING_ERROR_INVALID_ARGUMENT;
+    if (!FindContext(contextId)) return SCE_NP_SESSION_SIGNALING_ERROR_CONTEXT_NOT_FOUND;
+    return SCE_NP_SESSION_SIGNALING_ERROR_GROUP_NOT_FOUND;
 }
 
 int APS5_VABI sceNpSessionSignalingGetConnectionFromNetAddress2(std::uint32_t contextId, std::uint32_t groupId, std::uint32_t address, std::uint16_t port, std::uint32_t* connectionId) {
-    NetBridgeCall netCall("libSceNpSessionSignaling", __func__, [&](NetBridgeJson& netIn) { netIn.Uint("context_id", contextId); netIn.Uint("group_id", groupId); netIn.Uint("address", address); netIn.Uint("port", port); });
     (void)groupId;
     (void)address;
     (void)port;
     std::lock_guard lock(g_mutex);
-    if (!g_initialized) return netCall.Ret(SCE_NP_SESSION_SIGNALING_ERROR_NOT_INITIALIZED);
-    if (!connectionId) return netCall.Ret(SCE_NP_SESSION_SIGNALING_ERROR_INVALID_ARGUMENT);
-    if (!FindContext(contextId)) return netCall.Ret(SCE_NP_SESSION_SIGNALING_ERROR_CONTEXT_NOT_FOUND);
-    return netCall.Ret(SCE_NP_SESSION_SIGNALING_ERROR_GROUP_NOT_FOUND);
+    if (!g_initialized) return SCE_NP_SESSION_SIGNALING_ERROR_NOT_INITIALIZED;
+    if (!connectionId) return SCE_NP_SESSION_SIGNALING_ERROR_INVALID_ARGUMENT;
+    if (!FindContext(contextId)) return SCE_NP_SESSION_SIGNALING_ERROR_CONTEXT_NOT_FOUND;
+    return SCE_NP_SESSION_SIGNALING_ERROR_GROUP_NOT_FOUND;
 }
 
 int APS5_VABI sceNpSessionSignalingCreateJoinActivate() {
-    NetBridgeCall netCall("libSceNpSessionSignaling", __func__);
     NotImplemented_nid_no_patch(__func__);
-    return netCall.Ret(0);
+    return 0;
 }
 
 int APS5_VABI sceNpSessionSignalingGetConnectionFromNetAddress(std::uint32_t contextId, std::uint32_t address, std::uint16_t port, std::uint32_t* connectionId) {
-    NetBridgeCall netCall("libSceNpSessionSignaling", __func__, [&](NetBridgeJson& netIn) { netIn.Uint("context_id", contextId); netIn.Uint("address", address); netIn.Uint("port", port); });
     (void)address;
     (void)port;
     std::lock_guard lock(g_mutex);
-    if (!g_initialized) return netCall.Ret(SCE_NP_SESSION_SIGNALING_ERROR_NOT_INITIALIZED);
-    if (!connectionId) return netCall.Ret(SCE_NP_SESSION_SIGNALING_ERROR_INVALID_ARGUMENT);
-    if (!FindContext(contextId)) return netCall.Ret(SCE_NP_SESSION_SIGNALING_ERROR_CONTEXT_NOT_FOUND);
-    return netCall.Ret(SCE_NP_SESSION_SIGNALING_ERROR_CONN_NOT_FOUND);
+    if (!g_initialized) return SCE_NP_SESSION_SIGNALING_ERROR_NOT_INITIALIZED;
+    if (!connectionId) return SCE_NP_SESSION_SIGNALING_ERROR_INVALID_ARGUMENT;
+    if (!FindContext(contextId)) return SCE_NP_SESSION_SIGNALING_ERROR_CONTEXT_NOT_FOUND;
+    return SCE_NP_SESSION_SIGNALING_ERROR_CONN_NOT_FOUND;
 }
 
 int APS5_VABI sceNpSessionSignalingGetCustomProperty() {
-    NetBridgeCall netCall("libSceNpSessionSignaling", __func__);
     NotImplemented_nid_no_patch(__func__);
-    return netCall.Ret(0);
+    return 0;
 }
 
 int APS5_VABI sceNpSessionSignalingGetGroupFromPeerAddress() {
-    NetBridgeCall netCall("libSceNpSessionSignaling", __func__);
     NotImplemented_nid_no_patch(__func__);
-    return netCall.Ret(0);
+    return 0;
 }
 
 int APS5_VABI sceNpSessionSignalingInitializeWithPort() {
-    NetBridgeCall netCall("libSceNpSessionSignaling", __func__);
     NotImplemented_nid_no_patch(__func__);
-    return netCall.Ret(0);
+    return 0;
 }
 
 int APS5_VABI sceNpSessionSignalingJoinActivate() {
-    NetBridgeCall netCall("libSceNpSessionSignaling", __func__);
     NotImplemented_nid_no_patch(__func__);
-    return netCall.Ret(0);
+    return 0;
 }
 
 int APS5_VABI sceNpSessionSignalingSetCustomProperty() {
-    NetBridgeCall netCall("libSceNpSessionSignaling", __func__);
     NotImplemented_nid_no_patch(__func__);
-    return netCall.Ret(0);
+    return 0;
 }
 
 }
