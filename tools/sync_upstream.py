@@ -133,7 +133,7 @@ def build(args):
     before = check_main_sync.report(repo, upstream, main)
     branch = state["branch"]
     remote_branch = f"{remote}/{branch}"
-    existing = bool(args.existing)
+    existing = bool(args.existing) or run(repo, "rev-parse", "--verify", "--quiet", remote_branch, check=False).returncode == 0
     old = out(repo, "rev-parse", remote_branch) if existing else ""
     owned_by_bot = existing and not human_commits(repo, remote_branch, main, upstream)
     unresolved = []
