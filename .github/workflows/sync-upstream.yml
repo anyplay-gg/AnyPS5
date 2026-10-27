@@ -78,10 +78,10 @@ jobs:
       - name: Find the open sync pull request
         id: find
         run: |
-          gh pr list --state open --base "$BASE" --json number,headRefName,isDraft,isCrossRepository > "$RUNNER_TEMP/prs.json"
-          jq --arg prefix "$PREFIX" '[.[] | select(.isCrossRepository == false and (.headRefName | startswith($prefix)))][0] // {}' "$RUNNER_TEMP/prs.json" > "$RUNNER_TEMP/found.json"
-          echo "branch=$(jq -r '.headRefName // empty' "$RUNNER_TEMP/found.json")" >> "$GITHUB_OUTPUT"
-          echo "draft=$(jq -r '.isDraft // false' "$RUNNER_TEMP/found.json")" >> "$GITHUB_OUTPUT"
+          gh api "repos/$GITHUB_REPOSITORY/pulls?state=open&base=$BASE&per_page=100" > "$RUNNER_TEMP/prs.json"
+          jq --arg prefix "$PREFIX" --arg repo "$GITHUB_REPOSITORY" '[.[] | select(.head.repo.full_name == $repo and (.head.ref | startswith($prefix)))][0] // {}' "$RUNNER_TEMP/prs.json" > "$RUNNER_TEMP/found.json"
+          echo "branch=$(jq -r '.head.ref // empty' "$RUNNER_TEMP/found.json")" >> "$GITHUB_OUTPUT"
+          echo "draft=$(jq -r '.draft // false' "$RUNNER_TEMP/found.json")" >> "$GITHUB_OUTPUT"
       - name: Merge upstream into the sync branch
         id: merge
         env:
@@ -121,7 +121,7 @@ jobs:
           DRAFT: ${{ steps.merge.outputs.draft }}
           WAS_DRAFT: ${{ steps.find.outputs.draft }}
         run: |
-          number=$(gh pr list --state open --head "$SYNC_BRANCH" --base "$BASE" --json number --jq '.[0].number // empty')
+          number=$(gh api "repos/$GITHUB_REPOSITORY/pulls?state=open&base=$BASE&head=$GITHUB_REPOSITORY_OWNER:$SYNC_BRANCH" --jq '.[0].number // empty')
           if [ -z "$number" ]; then
             if ! number=$(gh api --method POST "repos/$GITHUB_REPOSITORY/pulls" -f head="$SYNC_BRANCH" -f base="$BASE" -f title="$TITLE" -F body=@"$RUNNER_TEMP/sync/body.md" -F draft="$DRAFT" --jq .number); then
               {
@@ -133,9 +133,9 @@ jobs:
               exit 1
             fi
           else
-            gh pr edit "$number" --title "$TITLE" --body-file "$RUNNER_TEMP/sync/body.md"
-            if [ "$DRAFT" = "true" ] && [ "$WAS_DRAFT" != "true" ]; then gh pr ready "$number" --undo; fi
-            if [ "$DRAFT" != "true" ] && [ "$WAS_DRAFT" = "true" ]; then gh pr ready "$number"; fi
+            gh api --method PATCH "repos/$GITHUB_REPOSITORY/pulls/$number" -f title="$TITLE" -F body=@"$RUNNER_TEMP/sync/body.md" --silent
+            if [ "$DRAFT" = "true" ] && [ "$WAS_DRAFT" != "true" ]; then gh pr ready "$number" --undo || echo "::warning::could not turn the pull request into a draft"; fi
+            if [ "$DRAFT" != "true" ] && [ "$WAS_DRAFT" = "true" ]; then gh pr ready "$number" || echo "::warning::could not mark the pull request ready"; fi
           fi
           echo "number=$number" >> "$GITHUB_OUTPUT"
           echo "Pull request: https://github.com/$GITHUB_REPOSITORY/pull/$number" >> "$GITHUB_STEP_SUMMARY"
