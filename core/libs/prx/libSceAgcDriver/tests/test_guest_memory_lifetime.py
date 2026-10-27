@@ -115,12 +115,12 @@ def fixture():
 
 
 def main():
-    relinker, fixture_library, kernel, libc, driver = (Path(value).resolve() for value in sys.argv[2:])
+    relinker, fixture_library, kernel, libc, driver, *extra = (Path(value).resolve() for value in sys.argv[2:])
     with tempfile.TemporaryDirectory(prefix="anyps5-guest-memory-lifetime-") as directory:
         work = Path(directory)
         libraries = work / "libs"
         libraries.mkdir()
-        for path in (fixture_library, kernel, libc, driver):
+        for path in (fixture_library, kernel, libc, driver, *extra):
             (libraries / path.name).symlink_to(path)
         source = work / "guest.elf"
         source.write_bytes(fixture())
