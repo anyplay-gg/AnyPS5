@@ -481,7 +481,8 @@ void* APS5_VABI CallTraceRecord_nid_no_patch(const void* recordAddress, std::uin
     ObservedStack& stack = t_observed;
     if (observer == nullptr || observer->enter == nullptr) return nullptr;
     const auto slotAddress = reinterpret_cast<std::uint64_t>(&saved->returnAddress);
-    while (stack.depth != 0 && stack.frames[stack.depth - 1].slot <= slotAddress) {
+    const bool tailCall = returnAddress == reinterpret_cast<std::uint64_t>(&CallTraceReturn_nid_no_patch);
+    while (stack.depth != 0 && (stack.frames[stack.depth - 1].slot < slotAddress || (stack.frames[stack.depth - 1].slot == slotAddress && !tailCall))) {
         ObservedFrame abandoned = stack.frames[--stack.depth];
         abandoned.claimed = true;
         FinishObserved(abandoned, 0);
