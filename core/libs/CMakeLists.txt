@@ -1102,6 +1102,18 @@ if(BUILD_TESTING)
         set_tests_properties(guest_gnm_neo_default_state PROPERTIES ENVIRONMENT_MODIFICATION
             "PATH=path_list_prepend:$<TARGET_FILE_DIR:libSceGnmDriverForNeoMode>")
     endif()
+
+    add_test_executable(bridge_e2e_game_tests tests/BridgeEndToEnd.cpp)
+    target_include_directories(bridge_e2e_game_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+    target_link_libraries(bridge_e2e_game_tests PRIVATE libSceNpWebApi2 libSceNpManager libSceNetCtl libc)
+    configure_windows_unwind(bridge_e2e_game_tests)
+    add_test(NAME bridge_e2e_game COMMAND bridge_e2e_game_tests)
+    set_tests_properties(bridge_e2e_game PROPERTIES TIMEOUT 30 SKIP_RETURN_CODE 77)
+    if(WIN32)
+        target_link_libraries(bridge_e2e_game_tests PRIVATE ws2_32)
+        set_tests_properties(bridge_e2e_game PROPERTIES ENVIRONMENT_MODIFICATION
+            "PATH=path_list_prepend:$<TARGET_FILE_DIR:libSceNetCtl>")
+    endif()
 endif()
 
 include(prx/libSceFreeType/CurveBounds.cmake)

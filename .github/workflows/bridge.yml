@@ -1,0 +1,94 @@
+name: Bridge End-to-End
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/bridge.yml
+      - core/libs/CMakeLists.txt
+      - core/libs/prx/libSceNet*/**
+      - core/libs/prx/libSceNp*/**
+      - core/libs/prx/libSceUserService/**
+      - core/libs/prx/libc/src/General.cpp
+      - core/libs/prx/libc/include/General.hpp
+      - core/libs/tests/BridgeEndToEnd.cpp
+      - network.ref
+      - tools/bridge_ci.py
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bridge-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name != 'push' }}
+
+jobs:
+  bridge-e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout AnyPS5
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          submodules: recursive
+          persist-credentials: false
+
+      - name: Read network ref
+        id: network-ref
+        run: echo "sha=$(cat network.ref | tr -d '[:space:]')" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout anyplaynet/network
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: anyplaynet/network
+          ref: ${{ steps.network-ref.outputs.sha }}
+          path: network
+          persist-credentials: false
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1
+        with:
+          toolchain: 1.99.1
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          workspaces: network -> target
+
+      - name: Build anyplay-net and anyplay-fake-game
+        run: |
+          cargo build --locked --manifest-path network/Cargo.toml -p anyplay-net -p anyplay-fake-game
+
+      - name: Install system dependencies for AnyPS5
+        run: |
+          sudo apt-get update && sudo apt-get install -y --no-install-recommends \
+            ninja-build libvulkan1 mesa-vulkan-drivers libpipewire-0.3-dev \
+            libpulse-dev libasound2-dev libxrandr-dev libwayland-dev \
+            libxkbcommon-dev libegl-dev libdecor-0-dev
+
+      - name: Set up ccache
+        uses: hendrikmuhs/ccache-action@f09c25b45002a07be2955cbe52e8cee55643f89d # v1.2.24
+        with:
+          key: bridge-e2e-linux
+
+      - name: Configure AnyPS5
+        run: |
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_TESTING=ON \
+            -DCMAKE_C_COMPILER=gcc \
+            -DCMAKE_CXX_COMPILER=g++ \
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+
+      - name: Build bridge test target
+        run: cmake --build build --target bridge_e2e_game_tests
+
+      - name: Run Bridge CI end to end
+        run: |
+          python3 -I tools/bridge_ci.py \
+            --anyplay-net network/target/debug/anyplay-net \
+            --fake-game network/target/debug/anyplay-fake-game \
+            --test-game build/tests/bridge_e2e_game_tests
