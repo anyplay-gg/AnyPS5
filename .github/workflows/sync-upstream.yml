@@ -123,9 +123,7 @@ jobs:
         run: |
           number=$(gh pr list --state open --head "$SYNC_BRANCH" --base "$BASE" --json number --jq '.[0].number // empty')
           if [ -z "$number" ]; then
-            flags=""
-            if [ "$DRAFT" = "true" ]; then flags="--draft"; fi
-            if ! number=$(gh pr create $flags --head "$SYNC_BRANCH" --base "$BASE" --title "$TITLE" --body-file "$RUNNER_TEMP/sync/body.md" | grep -o '[0-9]*$'); then
+            if ! number=$(gh api --method POST "repos/$GITHUB_REPOSITORY/pulls" -f head="$SYNC_BRANCH" -f base="$BASE" -f title="$TITLE" -F body=@"$RUNNER_TEMP/sync/body.md" -F draft="$DRAFT" --jq .number); then
               {
                 echo "The branch $SYNC_BRANCH is pushed, but this workflow could not open the pull request. Open it here: https://github.com/$GITHUB_REPOSITORY/compare/$BASE...$SYNC_BRANCH?expand=1"
                 echo
