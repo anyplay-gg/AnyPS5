@@ -437,15 +437,9 @@ jobs:
 
   linux:
     needs: eligibility
-<<<<<<< HEAD
-    if: ${{ !github.event.repository.fork && (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.linux)) && needs.eligibility.outputs.full == 'true' }}
-    runs-on: [self-hosted, linux, x64, anyps5]
-    timeout-minutes: 60
-=======
     if: ${{ (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.linux)) && needs.eligibility.outputs.full == 'true' }}
     runs-on: ${{ fromJSON(inputs.hosted && '"ubuntu-latest"' || '["self-hosted","linux","x64","anyps5"]') }}
     timeout-minutes: ${{ inputs.hosted && 330 || 60 }}
->>>>>>> origin/main
     env:
       CCACHE_COMPILERCHECK: content
     steps:
