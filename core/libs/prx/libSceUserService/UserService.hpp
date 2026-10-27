@@ -31,6 +31,8 @@ constexpr const char* USER_SERVICE_USER_NAMES[USER_SERVICE_MAX_USERS] = {
 };
 
 extern "C" void UserServiceSetUserConnected_nid_postfix(int userIndex, bool connected);
+extern "C" void UserServiceSetGuestUser_nid_postfix(int userIndex, const char* name);
+extern "C" void UserServiceClearGuestUser_nid_postfix(int userIndex);
 
 extern "C" {
 
