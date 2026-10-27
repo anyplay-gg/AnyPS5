@@ -3052,13 +3052,13 @@ int APS5_VABI sceNetShowRoute6WithMemory(std::int32_t poolId) {
 NetRouteInfo* APS5_VABI sceNetAllocateAllRouteInfo(std::int32_t interfaceId, std::int32_t* count) {
     NetBridgeCall netCall("libSceNet", __func__, [&](NetBridgeJson& netIn) { netIn.Int("interface_id", interfaceId); });
     NotImplemented_nid_no_patch(__func__);
-    return netCall.Ret(0);
+    return netCall.Ret(nullptr);
 }
 
 NetRouteInfo* APS5_VABI sceNetAllocateAllRouteInfo6(std::int32_t interfaceId, std::int32_t* count) {
     NetBridgeCall netCall("libSceNet", __func__, [&](NetBridgeJson& netIn) { netIn.Int("interface_id", interfaceId); });
     NotImplemented_nid_no_patch(__func__);
-    return netCall.Ret(0);
+    return netCall.Ret(nullptr);
 }
 
 int APS5_VABI sceNetControl(std::uint32_t interfaceId, std::int32_t interfaceIndex, std::uint32_t command, void* data, std::uint32_t dataSize) {
@@ -3331,7 +3331,7 @@ int APS5_VABI sceNetSyncDestroy(NetSyncObject* sync) {
 NetSyncObject* APS5_VABI sceNetSyncGet(std::uint32_t index) {
     NetBridgeCall netCall("libSceNet", __func__, [&](NetBridgeJson& netIn) { netIn.Uint("index", index); });
     NotImplemented_nid_no_patch(__func__);
-    return netCall.Ret(0);
+    return netCall.Ret(nullptr);
 }
 
 int APS5_VABI sceNetSyncSignal(NetSyncObject* sync, std::uint32_t signals) {
@@ -3418,7 +3418,7 @@ int APS5_VABI sceNetShowNetstatExForBuffer(char* buffer, std::int32_t bufferSize
 const char* APS5_VABI sceNetInetNtopWithScopeId(std::int32_t family, const void* address, char* text, std::uint32_t size, std::uint32_t scopeId) {
     NetBridgeCall netCall("libSceNet", __func__, [&](NetBridgeJson& netIn) { netIn.Int("family", family); netIn.Uint("size", size); netIn.Uint("scope_id", scopeId); });
     NotImplemented_nid_no_patch(__func__);
-    return netCall.Ret(0);
+    return netCall.Ret(nullptr);
 }
 
 int APS5_VABI sceNetInetPtonWithScopeId(std::int32_t family, const char* text, void* address, std::uint32_t* scopeId) {
