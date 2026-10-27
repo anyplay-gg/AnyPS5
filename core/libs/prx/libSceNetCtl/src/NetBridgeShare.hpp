@@ -17,6 +17,8 @@ constexpr std::uint8_t OpenMapped = 0;
 constexpr std::uint8_t OpenCannot = 1;
 constexpr std::uint8_t OpenRunning = 2;
 constexpr std::uint8_t OpenNotPresenting = 3;
+// Not a reply: a payload too short for a share open is answered with `unsupported`.
+constexpr std::uint8_t OpenUnsupported = 0xFF;
 
 constexpr std::uint8_t ActionTookControl = 1;
 constexpr std::uint8_t ActionStop = 2;

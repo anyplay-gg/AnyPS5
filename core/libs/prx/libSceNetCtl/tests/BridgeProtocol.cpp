@@ -139,6 +139,36 @@ void TestShareKindsMatchSpec() {
         0x02
     };
     Require(open.Take() == expectedOpen, "share open payload matches the spec byte for byte");
+
+    // The bridge-to-service direction: written out, not built with the code under test.
+    const Bytes expectedOpened = {
+        0x01, 0x00, 0x00, 0x00,
+        0x01, 0x85,
+        0x00, 0x00,
+        0x07, 0x00, 0x00, 0x00,
+        0x02
+    };
+    Require(EncodeFrame(KindShareOpened, 7, Bytes{2}) == expectedOpened, "share opened frame matches the spec byte for byte");
+    const Bytes expectedOverride = {
+        0x01, 0x00, 0x00, 0x00,
+        0x05, 0x05,
+        0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00,
+        0x01
+    };
+    Require(EncodeFrame(KindOverride, 0, Bytes{1}) == expectedOverride, "override frame matches the spec byte for byte");
+    Builder status;
+    status.U32(0x0102).U32(3).U32(4);
+    const Bytes expectedStatus = {
+        0x0C, 0x00, 0x00, 0x00,
+        0x06, 0x05,
+        0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00,
+        0x02, 0x01, 0x00, 0x00,
+        0x03, 0x00, 0x00, 0x00,
+        0x04, 0x00, 0x00, 0x00
+    };
+    Require(EncodeFrame(KindShareStatus, 0, status.Take()) == expectedStatus, "share status frame matches the spec byte for byte");
 }
 
 void TestRealBridgeWireVectors() {
@@ -315,6 +345,6 @@ int main() {
     TestShareKindsMatchSpec();
     TestRealBridgeWireVectors();
 
-    std::puts("bridge protocol frame tests: ok (19 frame kinds verified against spec and real bridge)");
+    std::puts("bridge protocol frame tests: ok (frame kinds verified against spec and real bridge, share play included)");
     return 0;
 }

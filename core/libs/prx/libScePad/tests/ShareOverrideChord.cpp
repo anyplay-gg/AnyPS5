@@ -27,6 +27,12 @@ int main() {
     Require(!Pad::ShareOverrideChord::Held(0x0008 | 0x4000), "start with another button is not the chord");
     Require(Pad::ShareOverrideChord::Held(0x100000 | 0x0008 | 0x4000), "other buttons held with the chord do not break it");
 
+    Pad::ShareOverrideChord wired;
+    const std::uint32_t both = Pad::ShareOverrideChord::SelectBit | Pad::ShareOverrideChord::StartBit;
+    Require(!wired.Advance(false, true, both, At(0)) && !wired.Advance(false, true, both, At(2000)), "no share running: the chord does nothing");
+    Require(!wired.Advance(true, false, both, At(3000)) && !wired.Advance(true, false, both, At(5000)), "no controller in slot 0: the chord does nothing");
+    Require(!wired.Advance(true, true, both, At(6000)) && wired.Advance(true, true, both, At(7000)), "share, controller and chord: fires after a second");
+
     Pad::ShareOverrideChord chord;
     Require(!chord.Advance(false, At(0)), "nothing held does nothing");
     Require(!chord.Advance(true, At(0)), "the chord has just been pressed");

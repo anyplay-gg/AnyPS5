@@ -7,6 +7,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <vector>
 
 static_assert(std::endian::native == std::endian::little);
 
@@ -116,7 +117,36 @@ inline Rectangle Fit(std::uint32_t sourceWidth, std::uint32_t sourceHeight, std:
     return Rectangle{(width - fitWidth) / 2, (height - fitHeight) / 2, fitWidth, fitHeight};
 }
 
-inline void Letterbox(std::uint8_t* destination, std::uint32_t destinationStride, std::uint32_t width, std::uint32_t height, const std::uint8_t* source, std::uint32_t sourceStride, std::uint32_t sourceWidth, std::uint32_t sourceHeight) {
+// The byte offset in a source row of each destination column of a fitted area. The divide runs
+// once per pair of sizes, not once per pixel of every frame.
+class ColumnTable {
+public:
+    void Prepare(std::uint32_t sourceWidth, std::uint32_t areaWidth) {
+        if (sourceWidth == this->sourceWidth && areaWidth == this->areaWidth) return;
+        this->sourceWidth = sourceWidth;
+        this->areaWidth = areaWidth;
+        offsets.resize(areaWidth);
+        for (std::uint32_t column = 0; column < areaWidth; ++column) {
+            offsets[column] = static_cast<std::uint32_t>(static_cast<std::uint64_t>(column) * sourceWidth / areaWidth) * 4;
+        }
+    }
+
+    const std::uint32_t* Data() const {
+        return offsets.data();
+    }
+
+private:
+    std::uint32_t sourceWidth = 0;
+    std::uint32_t areaWidth = 0;
+    std::vector<std::uint32_t> offsets;
+};
+
+inline void FillBlack(std::uint8_t* line, std::uint32_t pixels) {
+    const std::uint32_t black = 0xFF000000u;
+    for (std::uint32_t column = 0; column < pixels; ++column) std::memcpy(line + static_cast<std::size_t>(column) * 4, &black, 4);
+}
+
+inline void Letterbox(std::uint8_t* destination, std::uint32_t destinationStride, std::uint32_t width, std::uint32_t height, const std::uint8_t* source, std::uint32_t sourceStride, std::uint32_t sourceWidth, std::uint32_t sourceHeight, ColumnTable& columns) {
     if (sourceWidth == width && sourceHeight == height) {
         for (std::uint32_t row = 0; row < height; ++row) {
             std::memcpy(destination + static_cast<std::size_t>(row) * destinationStride, source + static_cast<std::size_t>(row) * sourceStride, static_cast<std::size_t>(width) * 4);
@@ -124,28 +154,27 @@ inline void Letterbox(std::uint8_t* destination, std::uint32_t destinationStride
         return;
     }
     const Rectangle area = Fit(sourceWidth, sourceHeight, width, height);
+    if (area.width != 0) columns.Prepare(sourceWidth, area.width);
+    const std::uint32_t* offsets = columns.Data();
     for (std::uint32_t row = 0; row < height; ++row) {
         std::uint8_t* line = destination + static_cast<std::size_t>(row) * destinationStride;
         const bool inside = row >= area.y && row < area.y + area.height;
         if (!inside || area.width == 0) {
-            for (std::uint32_t column = 0; column < width; ++column) {
-                const std::uint32_t black = 0xFF000000u;
-                std::memcpy(line + static_cast<std::size_t>(column) * 4, &black, 4);
-            }
+            FillBlack(line, width);
             continue;
         }
         const std::uint32_t sourceRow = static_cast<std::uint32_t>(static_cast<std::uint64_t>(row - area.y) * sourceHeight / area.height);
         const std::uint8_t* from = source + static_cast<std::size_t>(sourceRow) * sourceStride;
-        for (std::uint32_t column = 0; column < width; ++column) {
-            if (column < area.x || column >= area.x + area.width) {
-                const std::uint32_t black = 0xFF000000u;
-                std::memcpy(line + static_cast<std::size_t>(column) * 4, &black, 4);
-                continue;
-            }
-            const std::uint32_t sourceColumn = static_cast<std::uint32_t>(static_cast<std::uint64_t>(column - area.x) * sourceWidth / area.width);
-            std::memcpy(line + static_cast<std::size_t>(column) * 4, from + static_cast<std::size_t>(sourceColumn) * 4, 4);
-        }
+        FillBlack(line, area.x);
+        std::uint8_t* inner = line + static_cast<std::size_t>(area.x) * 4;
+        for (std::uint32_t column = 0; column < area.width; ++column) std::memcpy(inner + static_cast<std::size_t>(column) * 4, from + offsets[column], 4);
+        FillBlack(inner + static_cast<std::size_t>(area.width) * 4, width - area.x - area.width);
     }
+}
+
+inline void Letterbox(std::uint8_t* destination, std::uint32_t destinationStride, std::uint32_t width, std::uint32_t height, const std::uint8_t* source, std::uint32_t sourceStride, std::uint32_t sourceWidth, std::uint32_t sourceHeight) {
+    ColumnTable columns;
+    Letterbox(destination, destinationStride, width, height, source, sourceStride, sourceWidth, sourceHeight, columns);
 }
 
 class Producer {
@@ -191,7 +220,7 @@ public:
         std::uint8_t* slot = base + geometry.SlotOffset(index);
         Store64(slot + SlotOffsetSeq, 0);
         std::atomic_thread_fence(std::memory_order_seq_cst);
-        Letterbox(slot + SlotHeaderBytes, geometry.stride, geometry.width, geometry.height, bgra, stride, width, height);
+        Letterbox(slot + SlotHeaderBytes, geometry.stride, geometry.width, geometry.height, bgra, stride, width, height, columns);
         Store64(slot + SlotOffsetPresentUs, presentUs);
         Store32(slot + SlotOffsetKind, 0);
         Store32(slot + SlotOffsetFrame, frame);
@@ -233,6 +262,7 @@ private:
     Geometry geometry;
     std::uint64_t next = 1;
     std::uint64_t audioPosition = 0;
+    ColumnTable columns;
 };
 
 }

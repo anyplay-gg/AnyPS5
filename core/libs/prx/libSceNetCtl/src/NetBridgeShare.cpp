@@ -62,7 +62,9 @@ public:
     bool Open(const std::string& name, std::size_t bytes) {
         Release();
 #ifdef _WIN32
-        const std::string& path = name;
+        // The local namespace of the user's session, written out; the share worker makes the
+        // mapping with the bare name, which means the same.
+        const std::string path = "Local\\" + name;
         std::wstring wide(path.begin(), path.end());
         mapping = ::OpenFileMappingW(FILE_MAP_WRITE, FALSE, wide.c_str());
         if (mapping == nullptr) return false;
@@ -76,7 +78,8 @@ public:
         descriptor = ::shm_open(path.c_str(), O_RDWR, 0);
         if (descriptor < 0) return false;
         struct stat info{};
-        if (::fstat(descriptor, &info) != 0 || info.st_size < 0 || static_cast<std::size_t>(info.st_size) < bytes) {
+        // Only the user who runs the game may be able to read the ring.
+        if (::fstat(descriptor, &info) != 0 || info.st_size < 0 || static_cast<std::size_t>(info.st_size) < bytes || info.st_uid != ::geteuid() || (info.st_mode & 077) != 0) {
             Release();
             return false;
         }
@@ -123,13 +126,22 @@ private:
 #endif
 };
 
+// Three locks, never held together except in one order, ring then audio (Open and Close only):
+// - ringMutex: the frame side of the producer (a full-frame copy under it);
+// - audioMutex: the audio side, so that a frame copy never costs an audio block;
+// - padMutex: the guest pad, the mode, the sender and the open flag of the share. A pad read from
+//   libScePad (under its stateMutex) takes only this one and never waits for a copy.
+// The frame and the audio fields of the producer are disjoint; Attach and Detach change the
+// mapping under both ring locks, and a submit reads it under its own.
 struct State {
-    std::mutex mutex;
+    std::mutex ringMutex;
+    std::mutex audioMutex;
+    std::mutex padMutex;
     Sender sender;
     bool open = false;
     bool statusThread = false;
     std::uint8_t mode = ModeWatch;
-    std::uint32_t maxFps = DefaultFps;
+    std::atomic<std::uint32_t> maxFps{DefaultFps};
     Mapping mapping;
     ShareRing::Producer ring;
     NetBridgeSharePadView pad{};
@@ -151,6 +163,7 @@ std::uint8_t SlotOf(std::uint8_t mode) {
     return mode == ModeTogether ? 1 : 0;
 }
 
+// With padMutex held.
 void Neutralize(State& state) {
     std::memset(&state.pad, 0, sizeof(state.pad));
     std::memset(state.pad.sticks, 0x80, sizeof(state.pad.sticks));
@@ -167,7 +180,7 @@ void StatusLoop() {
         Sender send;
         Builder payload;
         {
-            std::lock_guard lock(state.mutex);
+            std::lock_guard lock(state.padMutex);
             if (!state.open) continue;
             send = state.sender;
             payload.U32(state.frames.load()).U32(state.dropped.load()).U32(state.audioUnderruns.load());
@@ -186,7 +199,7 @@ namespace NetBridgeShare {
 
 void Attach(Sender sender) {
     State& state = Share();
-    std::lock_guard lock(state.mutex);
+    std::lock_guard lock(state.padMutex);
     state.sender = std::move(sender);
 }
 
@@ -198,23 +211,27 @@ std::uint8_t Open(const std::vector<std::uint8_t>& payload) {
     const std::uint32_t height = reader.U32();
     const std::uint32_t maxFps = reader.U32();
     const std::uint8_t mode = reader.U8();
-    if (!reader.Ok() || !ValidName(name) || mode > ModeTogether || ringBytes < ShareRing::HeaderBytes || ringBytes > ShareRing::MaxRingBytes) return OpenCannot;
+    if (!reader.Ok()) return OpenUnsupported;
+    if (!ValidName(name) || mode > ModeTogether || ringBytes < ShareRing::HeaderBytes || ringBytes > ShareRing::MaxRingBytes) return OpenCannot;
     State& state = Share();
-    std::lock_guard lock(state.mutex);
-    if (state.open) return OpenRunning;
+    std::scoped_lock ringLocks(state.ringMutex, state.audioMutex);
+    if (state.ring.Attached()) return OpenRunning;
     if (!state.mapping.Open(name, ringBytes)) return OpenCannot;
     if (!state.ring.Attach(state.mapping.Data(), state.mapping.Size(), width, height)) {
         state.mapping.Release();
         return OpenCannot;
     }
-    state.open = true;
-    state.mode = mode;
-    state.maxFps = maxFps == 0 ? DefaultFps : (maxFps > MaxFps ? MaxFps : maxFps);
+    state.maxFps.store(maxFps == 0 ? DefaultFps : (maxFps > MaxFps ? MaxFps : maxFps));
     state.frames.store(0);
     state.dropped.store(0);
     state.audioUnderruns.store(0);
     state.lastFrameNs.store(0);
-    Neutralize(state);
+    {
+        std::lock_guard lock(state.padMutex);
+        state.open = true;
+        state.mode = mode;
+        Neutralize(state);
+    }
     state.active.store(true);
     if (!state.statusThread) {
         state.statusThread = true;
@@ -225,12 +242,14 @@ std::uint8_t Open(const std::vector<std::uint8_t>& payload) {
 
 void Close() {
     State& state = Share();
-    std::lock_guard lock(state.mutex);
     state.active.store(false);
-    state.open = false;
-    state.mode = ModeWatch;
-    Neutralize(state);
-    state.padMode.store(ModeWatch);
+    {
+        std::lock_guard lock(state.padMutex);
+        state.open = false;
+        state.mode = ModeWatch;
+        Neutralize(state);
+    }
+    std::scoped_lock ringLocks(state.ringMutex, state.audioMutex);
     state.ring.Detach();
     state.mapping.Release();
 }
@@ -240,7 +259,7 @@ void Mode(const std::vector<std::uint8_t>& payload) {
     const std::uint8_t mode = reader.U8();
     if (!reader.Ok() || mode > ModeTogether) return;
     State& state = Share();
-    std::lock_guard lock(state.mutex);
+    std::lock_guard lock(state.padMutex);
     if (!state.open) return;
     state.mode = mode;
     Neutralize(state);
@@ -255,7 +274,7 @@ void Pad(const std::vector<std::uint8_t>& payload) {
     for (auto& axis : axes) axis = reader.U8();
     if (!reader.Ok() || (buttons & ~ButtonMask) != 0) return;
     State& state = Share();
-    std::lock_guard lock(state.mutex);
+    std::lock_guard lock(state.padMutex);
     if (!state.open || state.mode == ModeWatch || slot != SlotOf(state.mode)) return;
     static_cast<void>(sequence);
     state.pad.buttons = buttons;
@@ -273,15 +292,14 @@ extern "C" int NetBridgeShareActive_nid_no_patch(void) {
     return Share().active.load() ? 1 : 0;
 }
 
+// The frame-rate cap is not a drop: a game that presents faster than the stream wants loses
+// nothing the stream asked for, so `dropped` counts only refused and busy frames.
 extern "C" int NetBridgeShareWantsFrame_nid_no_patch(void) {
     State& state = Share();
     if (!state.active.load()) return 0;
     const std::int64_t now = NowNs();
-    const std::int64_t interval = 1000000000ll / state.maxFps;
-    if (now - state.lastFrameNs.load() < interval * 9 / 10) {
-        state.dropped.fetch_add(1);
-        return 0;
-    }
+    const std::int64_t interval = 1000000000ll / state.maxFps.load();
+    if (now - state.lastFrameNs.load() < interval * 9 / 10) return 0;
     state.lastFrameNs.store(now);
     return 1;
 }
@@ -290,12 +308,12 @@ extern "C" int NetBridgeShareSubmitFrame_nid_no_patch(const void* bgra, std::uin
     State& state = Share();
     if (!state.active.load()) return 0;
     try {
-        std::unique_lock lock(state.mutex, std::try_to_lock);
+        std::unique_lock lock(state.ringMutex, std::try_to_lock);
         if (!lock.owns_lock()) {
             state.dropped.fetch_add(1);
             return 0;
         }
-        if (!state.open || !state.ring.SubmitFrame(static_cast<const std::uint8_t*>(bgra), width, height, stride, presentUs, frame)) {
+        if (!state.ring.SubmitFrame(static_cast<const std::uint8_t*>(bgra), width, height, stride, presentUs, frame)) {
             state.dropped.fetch_add(1);
             return 0;
         }
@@ -310,8 +328,8 @@ extern "C" int NetBridgeShareSubmitAudio_nid_no_patch(const float* stereo, std::
     State& state = Share();
     if (!state.active.load()) return 0;
     try {
-        std::unique_lock lock(state.mutex, std::try_to_lock);
-        if (!lock.owns_lock() || !state.open || !state.ring.SubmitAudio(stereo, frames)) {
+        std::unique_lock lock(state.audioMutex, std::try_to_lock);
+        if (!lock.owns_lock() || !state.ring.SubmitAudio(stereo, frames)) {
             state.audioUnderruns.fetch_add(1);
             return 0;
         }
@@ -325,7 +343,7 @@ extern "C" int NetBridgeSharePad_nid_no_patch(NetBridgeSharePadView* out) {
     State& state = Share();
     if (out != nullptr) std::memset(out, 0, sizeof(*out));
     if (state.padMode.load() == ModeWatch || out == nullptr) return 0;
-    std::lock_guard lock(state.mutex);
+    std::lock_guard lock(state.padMutex);
     if (!state.open || state.mode == ModeWatch) return 0;
     *out = state.pad;
     return 1;
@@ -336,7 +354,7 @@ extern "C" int NetBridgeShareOverride_nid_no_patch(std::uint8_t trigger) {
     std::uint8_t action = 0;
     Sender send;
     {
-        std::lock_guard lock(state.mutex);
+        std::lock_guard lock(state.padMutex);
         if (!state.open) return 0;
         const bool chord = trigger == 0;
         action = chord && state.mode != ModeWatch ? ActionTookControl : ActionStop;

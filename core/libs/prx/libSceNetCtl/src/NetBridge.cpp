@@ -629,7 +629,8 @@ private:
                 connection = generation;
             }
             const std::uint8_t result = NetBridgeShare::Open(payload);
-            send(connection, EncodeFrame(KindShareOpened, header.request, std::vector<std::uint8_t>{result}));
+            if (result == NetBridgeShare::OpenUnsupported) send(connection, EncodeFrame(KindUnsupported, header.request, {}));
+            else send(connection, EncodeFrame(KindShareOpened, header.request, std::vector<std::uint8_t>{result}));
             return;
         }
         if ((header.kind & ReplyBit) == 0) {

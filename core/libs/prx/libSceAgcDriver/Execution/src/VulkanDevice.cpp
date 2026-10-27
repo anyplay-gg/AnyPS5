@@ -549,6 +549,8 @@ struct VulkanDevice::State {
         bool dumpRecorded = false;
         bool dumpScreenshot = false;
         bool dumpShare = false;
+        // The presentation count of the shared picture (the game's flips); see `flips`.
+        std::uint32_t shareFlip = 0;
         int dumpIndex = 0;
         std::uint32_t imageIndex = 0;
         bool inFlight = false;
@@ -582,7 +584,8 @@ struct VulkanDevice::State {
     int nextDumpIndex = 0;
     bool nextDumpScreenshot = false;
     bool nextDumpShare = false;
-    std::uint32_t shareFrames = 0;
+    // Presented pictures, counted on the presenter thread: the `frame` of a shared picture.
+    std::uint32_t flips = 0;
     FrameDumpWriter dumpWriter;
 
     template<typename TFunction>
@@ -810,8 +813,9 @@ struct VulkanDevice::State {
         const auto index = slot.dumpIndex;
         if (slot.dumpShare) {
             if (full.size() == static_cast<std::size_t>(slot.dumpWidth) * slot.dumpHeight * 4) {
-                const auto presentUs = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
-                NetBridgeShareSubmitFrame_nid_no_patch(full.data(), slot.dumpWidth, slot.dumpHeight, slot.dumpWidth * 4, static_cast<std::uint64_t>(presentUs), ++shareFrames);
+                // The engine's monotonic clock at the picture's submission, not at the retire.
+                const auto presentUs = std::chrono::duration_cast<std::chrono::microseconds>(slot.submittedAt.time_since_epoch()).count();
+                NetBridgeShareSubmitFrame_nid_no_patch(full.data(), slot.dumpWidth, slot.dumpHeight, slot.dumpWidth * 4, static_cast<std::uint64_t>(presentUs), slot.shareFlip);
             }
             return;
         }
@@ -3545,6 +3549,7 @@ bool VulkanDevice::present(std::uint32_t width, std::uint32_t height, bool opaqu
     require(!passthrough || drawn || clearOnly || (state->hdrScaler != nullptr && !dumpFrame), "an HDR10 presentation through the scaler needs the HDR10 scaler and dumps on the CPU");
     const bool shareFrame = state->nextDumpShare && !clearOnly;
     state->nextDumpShare = false;
+    if (!clearOnly) ++state->flips;
     dumpFrame = dumpFrame || shareFrame;
     auto* scaler = passthrough && !drawn ? state->hdrScaler.get() : state->scaler.get();
     const float whiteNits = PqToSdrWhiteNits(AgcDriver::CurrentHostHdr());
@@ -3727,6 +3732,7 @@ bool VulkanDevice::present(std::uint32_t width, std::uint32_t height, bool opaqu
         slot.dumpRecorded = dumpFrame;
         slot.dumpScreenshot = dumpFrame && state->nextDumpScreenshot;
         slot.dumpShare = shareFrame;
+        slot.shareFlip = state->flips;
         slot.dumpIndex = state->nextDumpIndex;
         slot.recorderSerial = batchesAtBlit;
         slot.previousSerial = state->lastPresentSerial;

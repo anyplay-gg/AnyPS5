@@ -32,7 +32,7 @@ public:
         geometry.audioFrames = audioFrames;
         size = geometry.TotalBytes();
 #ifdef _WIN32
-        const std::string& path = name;
+        const std::string path = "Local\\" + name;
         const std::wstring wide(path.begin(), path.end());
         mapping = ::CreateFileMappingW(INVALID_HANDLE_VALUE, nullptr, PAGE_READWRITE, 0, static_cast<DWORD>(size), wide.c_str());
         FakeNet::Require(mapping != nullptr, "create the ring mapping");
