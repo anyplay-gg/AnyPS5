@@ -33,7 +33,7 @@ namespace {
 using namespace NetBridgeWire;
 using namespace NetBridgeShare;
 
-constexpr std::size_t MaxNameLength = 64;
+constexpr std::size_t MaxNameLength = 30;
 constexpr std::uint32_t DefaultFps = 60;
 constexpr std::uint32_t MaxFps = 240;
 constexpr auto StatusInterval = std::chrono::seconds(1);

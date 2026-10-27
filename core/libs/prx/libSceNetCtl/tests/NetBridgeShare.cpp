@@ -161,7 +161,9 @@ int main() {
     NetBridgeState_nid_no_patch(&state);
     Require(Service::WaitUntil([&] { return service.Welcomed() == 1; }, 5000), "bridge welcomed");
 
-    const std::string name = "anyplay-test-" + std::to_string(static_cast<unsigned long long>(std::chrono::steady_clock::now().time_since_epoch().count() & 0xFFFFFF));
+    std::string name = "anyplay-test-" + std::to_string(static_cast<unsigned long long>(std::chrono::steady_clock::now().time_since_epoch().count() & 0xFFFFFF));
+    name.append(30 - name.size(), '0');
+    Require(name.size() == 30, "the test ring has the longest valid name");
     Ring ring(name, RingWidth, RingHeight, RingAudioFrames, 60);
     const std::uint32_t ringBytes = static_cast<std::uint32_t>(ring.Size());
 
@@ -170,6 +172,13 @@ int main() {
     Require(OpenAndWait(service, 13, OpenPayload(name, ringBytes + 4096, RingWidth, RingHeight, 60, 0)) == 1, "a ring_bytes larger than the mapping answers 1");
     Require(OpenAndWait(service, 14, OpenPayload("../" + name, ringBytes, RingWidth, RingHeight, 60, 0)) == 1, "a name with a path answers 1");
     Require(OpenAndWait(service, 15, OpenPayload(name, ringBytes, RingWidth, RingHeight, 60, 3)) == 1, "an unknown mode answers 1");
+#ifndef __APPLE__
+    {
+        const std::string longName = name + "1";
+        Ring longRing(longName, RingWidth, RingHeight, RingAudioFrames, 60);
+        Require(OpenAndWait(service, 16, OpenPayload(longName, ringBytes, RingWidth, RingHeight, 60, 0)) == 1, "a name of 31 characters is refused even when the ring exists");
+    }
+#endif
     Require(NetBridgeShareActive_nid_no_patch() == 0, "refused opens leave no share");
 
     Require(OpenAndWait(service, 21, OpenPayload(name, ringBytes, RingWidth, RingHeight, 60, 0)) == 0, "share open maps the ring");
