@@ -1,16 +1,40 @@
 # AnyPS5, AnyPlay fork
 
-This is [AnyPlay](https://anyplaynet.com)'s fork of [boykopovar/AnyPS5](https://github.com/boykopovar/AnyPS5). Get AnyPS5, report engine bugs and follow its development there. The fork exists for one addition, the **network bridge**.
+This is [AnyPlay](https://anyplaynet.com)'s fork of [boykopovar/AnyPS5](https://github.com/boykopovar/AnyPS5), a compatibility layer that relinks PS5 executables into native Windows and Linux programs. It is not an emulator. The engine is the work of upstream and its authors. Get AnyPS5, report engine bugs and follow its development there.
 
-- **What it adds:** a small bridge inside the system libraries that hands a game's sign-in, session and web API calls to the [AnyPlay net service](https://github.com/anyplaynet/network) on the same PC. It is off unless the [AnyPlay Launcher](https://github.com/anyplaynet/launcher) sets its variables for one game start; without them every library behaves as in upstream. An observation mode writes down what a game asks for. The protocol is in [anyplaynet/network](https://github.com/anyplaynet/network/blob/main/spec/bridge-protocol.md).
-- **What it does not change:** everything else is upstream's. Only the neutral part of the bridge is meant to go upstream.
-- **Builds:** the fork's CI builds the C++ tree; the full Windows job has a 120-minute limit here.
+The fork adds the **network bridge** and the nightly toolkit builds that the [AnyPlay Launcher](https://github.com/anyplaynet/launcher) uses.
 
-Questions and ideas: the [AnyPlay Discord](https://discord.gg/9zYqf8fEsh).
+## What the fork adds
+
+- **Network bridge.** A small layer inside the system libraries that hands a game's sign-in, session and web API calls to the [AnyPlay net service](https://github.com/anyplaynet/network) on the same PC, so a game you own can play online with AnyPlay accounts. It is merged in the fork for:
+  - sign-in state and identity;
+  - NAT information;
+  - web API requests and push events;
+  - the online-permission check, answered for the AnyPlay network only;
+  - peer-to-peer datagram and stream sockets through the net service.
+
+  The bridge is off unless the launcher sets `ANYPS5_NET_ENDPOINT` and `ANYPS5_NET_TOKEN` for one game start. Without them every library behaves as in upstream. Session joins are not wired yet ([debt](docs/dev/debt/libSceNetCtl.md)). The wire format is the [bridge protocol](https://github.com/anyplaynet/network/blob/main/spec/bridge-protocol.md).
+- **Observation mode.** `ANYPS5_NET_OBSERVE` writes the network calls a game makes to a file, in the [observation log format](https://github.com/anyplaynet/network/blob/main/spec/observation-log.md).
+- **Nightly toolkit.** Every push to `main` publishes the [nightly release](https://github.com/anyplaynet/AnyPS5/releases/tag/nightly): relinker and system libraries for Windows and Linux, in the layout the launcher downloads or accepts as a toolkit folder. It is a pre-release, and each build replaces the last.
+
+The bridge follows [the line](https://github.com/anyplaynet/network/blob/main/docs/adr/0021-the-line-is-drawn-at-the-law.md): no Sony servers, code or keys, and only games the player owns. The variables are listed in [ENVIRONMENT](docs/dev/ENVIRONMENT.md#libscenetctl); known gaps are in [docs/dev/debt](docs/dev/debt).
+
+## How the fork tracks upstream
+
+A workflow keeps one open pull request, `sync/upstream-<date>`, that merges upstream `main` into the fork every week (and on demand). It lists the upstream changes and the files both sides changed, starts the Linux and Windows builds, and opens the pull request as a draft with the conflicting files when upstream does not merge cleanly. A person reads it, and then it is merged. Everything outside the bridge stays as upstream has it, which keeps those merges small. [FORK](docs/dev/FORK.md) lists every place the fork differs and why; a script checks it against upstream.
+
+## Contributing
+
+- **Generic engine work** (a library, a fix, a faster path) goes upstream as a pull request to [boykopovar/AnyPS5](https://github.com/boykopovar/AnyPS5). It reaches this fork with the next sync.
+- **Bridge work** goes here as a pull request. Follow [AGENTS.md](AGENTS.md), [CONTRIBUTING.md](CONTRIBUTING.md) and the [conventions](docs/dev/CONVENTIONS.md). Commit subjects and PR titles are Conventional Commits.
+- **Build:** the fork's CI builds the C++ tree. The full Windows job has a 120-minute limit here.
+- **Questions and ideas:** the [AnyPlay Discord](https://discord.gg/9zYqf8fEsh).
 
 ---
 
-## About AnyPS5 (upstream)
+**English** | [Português (Brasil)](docs/user/README.pt-BR.md) | [Español](docs/user/README.es.md) | [简体中文](docs/user/README.zh-CN.md) | [Русский](docs/user/README.ru.md)
+
+# About
 
 Tool for automatic executables porting to Linux and Windows.
 

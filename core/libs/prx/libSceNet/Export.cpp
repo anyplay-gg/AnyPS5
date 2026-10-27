@@ -48,6 +48,7 @@
 #include "prx/libkernel/Socket/include/SocketError.hpp"
 #include "prx/libkernel/Socket/include/SocketPoll.hpp"
 #include "prx/libkernel/Socket/include/SocketRuntime.hpp"
+#include "prx/libkernel/Socket/include/SocketOptions.hpp"
 #include "prx/libkernel/Time/include/Time.hpp"
 #include "prx/libkernel/Pthread/include/ThreadLifecycle.hpp"
 #include "src/ResolverTestHooks.hpp"
@@ -101,6 +102,7 @@ constexpr int NET_EINTR = 4;
 constexpr int NET_EBADF = 9;
 constexpr int NET_EACCES = 13;
 constexpr int NET_EFAULT = 14;
+constexpr int NET_EBUSY = 16;
 constexpr int NET_EINVAL = 22;
 constexpr int NET_ENOTTY = 25;
 constexpr int NET_ENOSPC = 28;
@@ -127,8 +129,14 @@ constexpr int NET_EHOSTUNREACH = 65;
 constexpr int NET_ENOTINIT = 200;
 constexpr int NET_ERROR_BASE = static_cast<int>(0x80410100u);
 constexpr int NET_ERROR_RESOLVER_ENODNS = static_cast<int>(0x804101E1u);
+constexpr int NET_CONFIG_ERROR_NULL_FLAGS = static_cast<int>(0x8041130Eu);
 constexpr int NET_RESOLVER_ABORT_FLAG_NTOA_PRESERVATION = 0x1;
 constexpr int NET_RESOLVER_ABORT_FLAG_ATON_PRESERVATION = 0x2;
+constexpr std::uint32_t NET_IFF_UP = 0x1;
+constexpr std::uint32_t NET_IFF_LOOPBACK = 0x8;
+constexpr std::uint32_t NET_IFF_RUNNING = 0x40;
+constexpr std::uint32_t NET_IFF_MULTICAST = 0x8000;
+constexpr std::uint32_t NET_IF_LO0 = 0;
 
 constexpr int NET_AF_INET = 2;
 constexpr int NET_AF_INET6 = 28;
@@ -148,6 +156,7 @@ constexpr int NET_EPOLL_CTL_MOD = 2;
 constexpr int NET_EPOLL_CTL_DEL = 3;
 constexpr int NET_SOL_SOCKET = 0xFFFF;
 constexpr int NET_IPPROTO_TCP = 6;
+constexpr int NET_IPPROTO_IPV6 = 41;
 constexpr int NET_TCP_NODELAY = 1;
 constexpr int NET_TF_NODELAY = 4;
 constexpr int NET_SO_SNDTIMEO = 0x1005;
@@ -159,13 +168,17 @@ constexpr int NET_SO_REUSEADDR = 0x4;
 constexpr int NET_SO_KEEPALIVE = 0x8;
 constexpr int NET_SO_BROADCAST = 0x20;
 constexpr int NET_SO_ONESBCAST = 0x10000;
+constexpr int NET_SO_OOBINLINE = 0x100;
 constexpr int NET_SO_SNDBUF = 0x1001;
 constexpr int NET_SO_RCVBUF = 0x1002;
 constexpr int NET_SO_SCE_SNDTIMEO = 0x1105;
 constexpr int NET_SO_SCE_RCVTIMEO = 0x1106;
+constexpr int NET_SO_TYPE = 0x1008;
+constexpr int NET_SO_ACCEPTCONN = 0x2;
 constexpr int NET_MSG_PEEK = 0x2;
 constexpr int NET_MSG_TRUNC = 0x10;
 constexpr int NET_MSG_DONTWAIT = 0x80;
+constexpr int NET_MSG_NOSIGNAL = 0x20000;
 constexpr int NET_UIO_MAXIOV = 1024;
 
 #ifdef _WIN32
@@ -293,6 +306,7 @@ struct Sock {
     bool aborted = false;
     bool sending_shut = false;
     bool read_shut = false;
+    bool oobInline = false;
     int reported_error = 0;
     int snd_buffer = 0;
     int rcv_buffer = 0;
@@ -421,6 +435,8 @@ int g_next_epoll = 0x4000;
 int g_next_pool = 1;
 int g_next_resolver = 0x100;
 bool g_net_inited = false;
+bool g_net_init_param_set = false;
+std::array<std::uint8_t, 32> g_net_init_param{};
 std::atomic<GuestSceNetTest::ResolverLookup> g_resolverLookupForTests{nullptr};
 
 int* errno_slot() {
@@ -617,6 +633,24 @@ auto native_transfer(const NativeSocketHandle& socket, int flags, bool send, TOp
 #endif
 }
 
+#ifdef __APPLE__
+template <typename TSend>
+std::int64_t send_stream_in_chunks(const NativeSocketHandle& socket, int flags, const char* data, std::size_t length, TSend sendChunk) {
+    if (!socket.stream || (flags & NET_MSG_DONTWAIT) != 0 || socket.nonblock.load()) return sendChunk(data, length);
+    if (length == 0) return sendChunk(data, 0);
+    constexpr std::size_t Chunk = 65536;
+    std::size_t transferred = 0;
+    do {
+        const auto request = std::min(Chunk, length - transferred);
+        const auto result = sendChunk(data + transferred, request);
+        if (result < 0) return transferred > 0 ? static_cast<std::int64_t>(transferred) : -1;
+        transferred += static_cast<std::size_t>(result);
+        if (static_cast<std::size_t>(result) < request) break;
+    } while (transferred < length);
+    return static_cast<std::int64_t>(transferred);
+}
+#endif
+
 #ifdef _WIN32
 int TransferSocketForKernel(KernelSocketPoll::NativeOwner* owner, bool send, void* buffer, int length) {
     const auto* socket = static_cast<NativeSocketHandle*>(owner);
@@ -631,6 +665,10 @@ int native_message_flags(int flags) {
     int native = (flags & NET_MSG_PEEK) ? MSG_PEEK : 0;
 #ifndef _WIN32
     if (flags & NET_MSG_DONTWAIT) native |= MSG_DONTWAIT;
+#endif
+#ifdef __APPLE__
+    constexpr int XnuMessageNonblocking = 0x20000;
+    if (flags & NET_MSG_DONTWAIT) native |= XnuMessageNonblocking;
 #endif
     return native;
 }
@@ -1035,7 +1073,7 @@ alignas(std::uint32_t) extern const std::uint8_t sce_net_in6addr_linklocal_allno
 
 int* APS5_VABI sceNetErrnoLoc(void) {
     NetBridgeCall netCall("libSceNet", __func__);
-    return errno_slot();
+    return netCall.Ret(errno_slot());
 }
 
 int APS5_VABI sceNetShowNetstat(void) {
@@ -1107,7 +1145,10 @@ const bool g_socketPollerRegistered = (KernelSetSocketPoller_nid_no_patch(&PollS
 bool CloseSocketForKernel(int descriptor, int* error) {
     {
         std::lock_guard lk(g_mutex);
-        if (g_socks.count(descriptor) == 0) return false;
+        if (g_socks.count(descriptor) == 0) {
+            for (auto& epoll : g_epoll_socks) epoll.second.erase(descriptor);
+            return false;
+        }
     }
     *error = sceNetSocketClose(descriptor) == 0 ? 0 : *errno_slot();
     return true;
@@ -1216,7 +1257,7 @@ int APS5_VABI sceNetSocket(const char* name, int family, int type, int protocol)
     if (family != NET_AF_INET && family != NET_AF_INET6) {
         return netCall.Ret(fail(NET_EAFNOSUPPORT));
     }
-    if ((type == NET_SOCK_DGRAM_P2P || type == NET_SOCK_STREAM_P2P) && NetBridgeEnabled_nid_no_patch() != 0) return open_p2p(family, type);
+    if ((type == NET_SOCK_DGRAM_P2P || type == NET_SOCK_STREAM_P2P) && NetBridgeEnabled_nid_no_patch() != 0) return netCall.Ret(open_p2p(family, type));
     if (type != NET_SOCK_STREAM && type != NET_SOCK_DGRAM && type != NET_SOCK_RAW) {
         return netCall.Ret(fail(NET_EPROTONOSUPPORT));
     }
@@ -1327,7 +1368,7 @@ int APS5_VABI sceNetBind_nid_postfix(int s, const void* addr, uint32_t addrlen) 
         socket = it->second;
         if (it->second.bound) return netCall.Ret(fail(NET_EINVAL));
     }
-    if (socket.p2p) return bind_p2p(s, socket, addr, addrlen);
+    if (socket.p2p) return netCall.Ret(bind_p2p(s, socket, addr, addrlen));
     sockaddr_storage native{};
     NativeLength native_length = 0;
     if (!guest_to_native_address(addr, addrlen, native, native_length)) return netCall.Ret(fail(NET_EINVAL));
@@ -1368,7 +1409,7 @@ int APS5_VABI sceNetAccept(int s, void* addr, uint32_t* addrlen) {
     {
         std::lock_guard lk(g_mutex);
         auto it = g_socks.find(s);
-        if (it == g_socks.end()) return fail(NET_EBADF);
+        if (it == g_socks.end()) return netCall.Ret(fail(NET_EBADF));
         listener = it->second;
     }
     if (!listener.listening) return netCall.Ret(fail(NET_EINVAL));
@@ -1396,7 +1437,7 @@ int APS5_VABI sceNetAccept(int s, void* addr, uint32_t* addrlen) {
         handle = std::make_shared<NativeSocketHandle>(accepted, true);
     } catch (const std::bad_alloc&) {
         close_socket(accepted);
-        return fail(12);
+        return netCall.Ret(fail(12));
     }
     Sock connection;
     connection.family = listener.family;
@@ -1428,7 +1469,7 @@ int APS5_VABI sceNetAccept(int s, void* addr, uint32_t* addrlen) {
         if (sceNetSetsockopt(descriptor, NET_SOL_SOCKET, NET_SO_NBIO, &enabled, sizeof(enabled)) != 0) {
             const int error = *errno_slot();
             sceNetSocketClose(descriptor);
-            return fail(error);
+            return netCall.Ret(fail(error));
         }
     }
     if (addr && connection.p2p) {
@@ -1437,11 +1478,11 @@ int APS5_VABI sceNetAccept(int s, void* addr, uint32_t* addrlen) {
         const auto copied = std::min<std::uint32_t>(*addrlen, sizeof(bytes));
         std::memcpy(addr, bytes, copied);
         *addrlen = copied;
-        return descriptor;
+        return netCall.Ret(descriptor);
     }
     if (addr && !native_to_guest_address(peer, addr, addrlen)) {
         sceNetSocketClose(descriptor);
-        return fail(NET_EAFNOSUPPORT);
+        return netCall.Ret(fail(NET_EAFNOSUPPORT));
     }
     return netCall.Ret(descriptor);
 }
@@ -1492,7 +1533,7 @@ int APS5_VABI sceNetConnect(int s, const void* addr, uint32_t addrlen) {
         it->second.reported_error = 0;
         socket = it->second;
     }
-    if (socket.p2p && socket.type == NET_SOCK_STREAM_P2P) return connect_p2p(s, socket, addr, addrlen);
+    if (socket.p2p && socket.type == NET_SOCK_STREAM_P2P) return netCall.Ret(connect_p2p(s, socket, addr, addrlen));
     if (socket.p2p) NotImplemented_nid_no_patch("sceNetConnect on a peer-to-peer datagram socket");
     if (socket.type == NET_SOCK_DGRAM && addr && addrlen >= 2 && static_cast<const std::uint8_t*>(addr)[1] == 0) {
         if (const int error = disconnect_datagram(socket)) return netCall.Ret(error);
@@ -1538,30 +1579,30 @@ int APS5_VABI sceNetConnect(int s, const void* addr, uint32_t addrlen) {
 
 int64_t APS5_VABI sceNetRecv(int s, void* buf, size_t len, int flags) {
     NetBridgeCall netCall("libSceNet", __func__, [&](NetBridgeJson& netIn) { netIn.Int("s", s); netIn.Uint("len", len); netIn.Int("flags", flags); });
-    if (!message_flags_supported(flags, NET_MSG_PEEK | NET_MSG_DONTWAIT)) return fail(NET_EOPNOTSUPP);
-    if (!buf && len) return fail(NET_EINVAL);
-    if (len > INT_MAX) return fail(NET_EMSGSIZE);
+    if (!message_flags_supported(flags, NET_MSG_PEEK | NET_MSG_DONTWAIT)) return netCall.Ret(fail(NET_EOPNOTSUPP));
+    if (!buf && len) return netCall.Ret(fail(NET_EINVAL));
+    if (len > INT_MAX) return netCall.Ret(fail(NET_EMSGSIZE));
     Sock socket;
     {
         std::lock_guard lk(g_mutex);
         auto it = g_socks.find(s);
-        if (it == g_socks.end()) return fail(NET_EBADF);
+        if (it == g_socks.end()) return netCall.Ret(fail(NET_EBADF));
         socket = it->second;
     }
     if (socket.p2p && socket.type == NET_SOCK_DGRAM_P2P) NotImplemented_nid_no_patch("sceNetRecv on a peer-to-peer datagram socket");
 #if defined(_WIN32) || defined(__APPLE__)
-    if (const int wait = wait_for_local_address(s, socket, len == 0, flags)) return wait == RECEIVE_NOTHING ? 0 : fail(wait);
+    if (const int wait = wait_for_local_address(s, socket, len == 0, flags)) return netCall.Ret(wait == RECEIVE_NOTHING ? 0 : fail(wait));
 #endif
     const GuestArena::HostWrite destination(len == 0 ? nullptr : buf, len);
-    if (!destination.Open()) return fail(NET_EFAULT);
+    if (!destination.Open()) return netCall.Ret(fail(NET_EFAULT));
     const int native_flags = native_message_flags(flags);
     const int result = native_transfer(*socket.native, flags, false, [&](int) {
         return ::recv(socket.native->value, static_cast<char*>(buf), static_cast<int>(len), native_flags);
     });
 #ifdef _WIN32
-    if (result < 0 && socket.type == NET_SOCK_DGRAM && WSAGetLastError() == WSAEMSGSIZE) return static_cast<int64_t>(len);
+    if (result < 0 && socket.type == NET_SOCK_DGRAM && WSAGetLastError() == WSAEMSGSIZE) return netCall.Ret(static_cast<int64_t>(len));
 #endif
-    return result >= 0 ? result : fail(native_error());
+    return netCall.Ret(result >= 0 ? result : fail(native_error()));
 }
 
 int64_t APS5_VABI GuestNetRecv_nid_no_patch(int s, void* buf, size_t len, int flags) {
@@ -1570,41 +1611,41 @@ int64_t APS5_VABI GuestNetRecv_nid_no_patch(int s, void* buf, size_t len, int fl
 
 int64_t APS5_VABI sceNetRecvfrom(int s, void* buf, size_t len, int flags, void* from, uint32_t* fromlen) {
     NetBridgeCall netCall("libSceNet", __func__, [&](NetBridgeJson& netIn) { netIn.Int("s", s); netIn.Uint("len", len); netIn.Int("flags", flags); });
-    if (!message_flags_supported(flags, NET_MSG_PEEK | NET_MSG_DONTWAIT)) return fail(NET_EOPNOTSUPP);
-    if (!buf && len) return fail(NET_EINVAL);
-    if (len > INT_MAX) return fail(NET_EMSGSIZE);
-    if (from && !fromlen) return fail(NET_EINVAL);
+    if (!message_flags_supported(flags, NET_MSG_PEEK | NET_MSG_DONTWAIT)) return netCall.Ret(fail(NET_EOPNOTSUPP));
+    if (!buf && len) return netCall.Ret(fail(NET_EINVAL));
+    if (len > INT_MAX) return netCall.Ret(fail(NET_EMSGSIZE));
+    if (from && !fromlen) return netCall.Ret(fail(NET_EINVAL));
     Sock socket;
     {
         std::lock_guard lk(g_mutex);
         auto it = g_socks.find(s);
-        if (it == g_socks.end()) return fail(NET_EBADF);
+        if (it == g_socks.end()) return netCall.Ret(fail(NET_EBADF));
         socket = it->second;
     }
-    if (socket.p2p && socket.type == NET_SOCK_DGRAM_P2P) return receive_p2p(socket, buf, len, flags, from, fromlen);
+    if (socket.p2p && socket.type == NET_SOCK_DGRAM_P2P) return netCall.Ret(receive_p2p(socket, buf, len, flags, from, fromlen));
     if (socket.p2p) {
         if (from) {
             const GuestArena::HostWrite lengthOnly(fromlen, sizeof(*fromlen));
-            if (!lengthOnly.Open()) return fail(NET_EFAULT);
+            if (!lengthOnly.Open()) return netCall.Ret(fail(NET_EFAULT));
             *fromlen = 0;
         }
-        return sceNetRecv(s, buf, len, flags);
+        return netCall.Ret(sceNetRecv(s, buf, len, flags));
     }
     const GuestArena::HostWrite lengthOutput(from == nullptr ? nullptr : fromlen, from == nullptr ? 0 : sizeof(*fromlen));
-    if (!lengthOutput.Open()) return fail(NET_EFAULT);
+    if (!lengthOutput.Open()) return netCall.Ret(fail(NET_EFAULT));
 #if defined(_WIN32) || defined(__APPLE__)
     if (const int wait = wait_for_local_address(s, socket, len == 0, flags)) {
-        if (wait != RECEIVE_NOTHING) return fail(wait);
+        if (wait != RECEIVE_NOTHING) return netCall.Ret(fail(wait));
         if (from) *fromlen = 0;
-        return 0;
+        return netCall.Ret(0);
     }
 #endif
     const auto addressBytes = from != nullptr && socket.type == NET_SOCK_DGRAM ?
         std::min<std::uint32_t>(*fromlen, socket.family == NET_AF_INET ? 16u : 28u) : 0u;
     const GuestArena::HostWrite addressOutput(addressBytes == 0 ? nullptr : from, addressBytes);
-    if (!addressOutput.Open()) return fail(NET_EFAULT);
+    if (!addressOutput.Open()) return netCall.Ret(fail(NET_EFAULT));
     const GuestArena::HostWrite destination(len == 0 ? nullptr : buf, len);
-    if (!destination.Open()) return fail(NET_EFAULT);
+    if (!destination.Open()) return netCall.Ret(fail(NET_EFAULT));
     sockaddr_storage peer{};
     NativeLength peer_length = sizeof(peer);
     const int native_flags = native_message_flags(flags);
@@ -1616,30 +1657,36 @@ int64_t APS5_VABI sceNetRecvfrom(int s, void* buf, size_t len, int flags, void* 
 #ifdef _WIN32
     if (result < 0 && socket.type == NET_SOCK_DGRAM && WSAGetLastError() == WSAEMSGSIZE) result = static_cast<int>(len);
 #endif
-    if (result < 0) return fail(native_error());
-    if (from && !native_to_guest_address(peer, from, fromlen)) return fail(NET_EAFNOSUPPORT);
+    if (result < 0) return netCall.Ret(fail(native_error()));
+    if (from && !native_to_guest_address(peer, from, fromlen)) return netCall.Ret(fail(NET_EAFNOSUPPORT));
     if (from && netCall.On()) observe_address(netCall.Out(), "from", from, *fromlen);
     if (netCall.On()) netCall.Out().Int("received", result);
-    return result;
+    return netCall.Ret(result);
 }
 
 int64_t APS5_VABI sceNetSend(int s, const void* buf, size_t len, int flags) {
     NetBridgeCall netCall("libSceNet", __func__, [&](NetBridgeJson& netIn) { netIn.Int("s", s); netIn.Uint("len", len); netIn.Int("flags", flags); });
-    if (!message_flags_supported(flags, NET_MSG_DONTWAIT)) return fail(NET_EOPNOTSUPP);
-    if (!buf && len) return fail(NET_EINVAL);
-    if (len > INT_MAX) return fail(NET_EMSGSIZE);
+    if (!message_flags_supported(flags, NET_MSG_DONTWAIT | NET_MSG_NOSIGNAL)) return netCall.Ret(fail(NET_EOPNOTSUPP));
+    if (!buf && len) return netCall.Ret(fail(NET_EINVAL));
+    if (len > INT_MAX) return netCall.Ret(fail(NET_EMSGSIZE));
     Sock socket;
     {
         std::lock_guard lk(g_mutex);
         auto it = g_socks.find(s);
-        if (it == g_socks.end()) return fail(NET_EBADF);
+        if (it == g_socks.end()) return netCall.Ret(fail(NET_EBADF));
         socket = it->second;
     }
     if (socket.p2p && socket.type == NET_SOCK_DGRAM_P2P) NotImplemented_nid_no_patch("sceNetSend on a peer-to-peer datagram socket");
+#ifdef __APPLE__
+    const auto result = send_stream_in_chunks(*socket.native, flags, static_cast<const char*>(buf), len, [&](const char* data, std::size_t size) {
+        return ::send(socket.native->value, data, size, NATIVE_SEND_FLAGS | native_message_flags(flags));
+    });
+#else
     const int result = native_transfer(*socket.native, flags, true, [&](int offset) {
         return ::send(socket.native->value, offset ? static_cast<const char*>(buf) + offset : static_cast<const char*>(buf), static_cast<int>(len) - offset, NATIVE_SEND_FLAGS | native_message_flags(flags));
     }, true, static_cast<int>(len));
-    return result >= 0 ? result : fail(native_error());
+#endif
+    return netCall.Ret(result >= 0 ? result : fail(native_error()));
 }
 
 int64_t APS5_VABI GuestNetSend_nid_no_patch(int s, const void* buf, size_t len, int flags) {
@@ -1648,39 +1695,56 @@ int64_t APS5_VABI GuestNetSend_nid_no_patch(int s, const void* buf, size_t len, 
 
 int64_t APS5_VABI sceNetSendto(int s, const void* buf, size_t len, int flags, const void* to, uint32_t tolen) {
     NetBridgeCall netCall("libSceNet", __func__, [&](NetBridgeJson& netIn) { netIn.Int("s", s); netIn.Uint("len", len); netIn.Int("flags", flags); netIn.Uint("tolen", tolen); observe_address(netIn, "to", to, tolen); });
-    if (!message_flags_supported(flags, NET_MSG_DONTWAIT)) return fail(NET_EOPNOTSUPP);
-    if (!buf && len) return fail(NET_EINVAL);
-    if (len > INT_MAX) return fail(NET_EMSGSIZE);
+    if (!message_flags_supported(flags, NET_MSG_DONTWAIT | NET_MSG_NOSIGNAL)) return netCall.Ret(fail(NET_EOPNOTSUPP));
+    if (!buf && len) return netCall.Ret(fail(NET_EINVAL));
+    if (len > INT_MAX) return netCall.Ret(fail(NET_EMSGSIZE));
     Sock socket;
     {
         std::lock_guard lk(g_mutex);
         auto it = g_socks.find(s);
-        if (it == g_socks.end()) return fail(NET_EBADF);
+        if (it == g_socks.end()) return netCall.Ret(fail(NET_EBADF));
         socket = it->second;
     }
-    if (socket.p2p && socket.type == NET_SOCK_DGRAM_P2P) return send_p2p(socket, buf, len, flags, to, tolen);
+    if (socket.p2p && socket.type == NET_SOCK_DGRAM_P2P) return netCall.Ret(send_p2p(socket, buf, len, flags, to, tolen));
     if (socket.p2p && to) NotImplemented_nid_no_patch("sceNetSendto with a destination on a peer-to-peer stream socket");
+#ifdef __APPLE__
+    std::int64_t result;
+#else
     int result;
+#endif
     if (!to) {
-        if (tolen != 0) return fail(NET_EINVAL);
+        if (tolen != 0) return netCall.Ret(fail(NET_EINVAL));
+#ifdef __APPLE__
+        result = send_stream_in_chunks(*socket.native, flags, static_cast<const char*>(buf), len, [&](const char* data, std::size_t size) {
+            return ::send(socket.native->value, data, size, NATIVE_SEND_FLAGS | native_message_flags(flags));
+        });
+#else
         result = native_transfer(*socket.native, flags, true, [&](int offset) {
             return ::send(socket.native->value, offset ? static_cast<const char*>(buf) + offset : static_cast<const char*>(buf), static_cast<int>(len) - offset, NATIVE_SEND_FLAGS | native_message_flags(flags));
         }, true, static_cast<int>(len));
+#endif
     } else {
         sockaddr_storage destination{};
         NativeLength destination_length = 0;
-        if (!guest_to_native_address(to, tolen, destination, destination_length)) return fail(NET_EINVAL);
-        if (destination.ss_family != (socket.family == NET_AF_INET ? AF_INET : AF_INET6)) return fail(NET_EAFNOSUPPORT);
+        if (!guest_to_native_address(to, tolen, destination, destination_length)) return netCall.Ret(fail(NET_EINVAL));
+        if (destination.ss_family != (socket.family == NET_AF_INET ? AF_INET : AF_INET6)) return netCall.Ret(fail(NET_EAFNOSUPPORT));
+#ifdef __APPLE__
+        result = send_stream_in_chunks(*socket.native, flags, static_cast<const char*>(buf), len, [&](const char* data, std::size_t size) {
+            return ::sendto(socket.native->value, data, size, NATIVE_SEND_FLAGS | native_message_flags(flags),
+                reinterpret_cast<const sockaddr*>(&destination), destination_length);
+        });
+#else
         result = native_transfer(*socket.native, flags, true, [&](int offset) {
             return ::sendto(socket.native->value, offset ? static_cast<const char*>(buf) + offset : static_cast<const char*>(buf), static_cast<int>(len) - offset, NATIVE_SEND_FLAGS | native_message_flags(flags),
                 reinterpret_cast<const sockaddr*>(&destination), destination_length);
         }, true, static_cast<int>(len));
+#endif
     }
-    if (result < 0) return fail(native_error());
+    if (result < 0) return netCall.Ret(fail(native_error()));
 #if defined(_WIN32) || defined(__APPLE__)
     note_local_address(s, socket);
 #endif
-    return result;
+    return netCall.Ret(result);
 }
 
 int64_t APS5_VABI sceNetSendmsg(int s, const NetMsghdr* msg, int flags) {
@@ -1705,39 +1769,42 @@ int64_t APS5_VABI sceNetSendmsg(int s, const NetMsghdr* msg, int flags) {
 int64_t APS5_VABI sceNetRecvmsg(int s, NetMsghdr* msg, int flags) {
     NetBridgeCall netCall("libSceNet", __func__, [&](NetBridgeJson& netIn) { netIn.Int("s", s); netIn.Int("flags", flags); });
     const auto total = message_length(msg);
-    if (total < 0) return total;
-    if (!message_flags_supported(flags, NET_MSG_PEEK | NET_MSG_DONTWAIT)) return fail(NET_EOPNOTSUPP);
+    if (total < 0) return netCall.Ret(total);
+    NetMsghdr header = *msg;
+    std::vector<NetIovec> vectors;
+    if (header.iov_length > 0) vectors.assign(header.iov, header.iov + header.iov_length);
+    if (!message_flags_supported(flags, NET_MSG_PEEK | NET_MSG_DONTWAIT)) return netCall.Ret(fail(NET_EOPNOTSUPP));
     Sock socket;
     {
         std::lock_guard lk(g_mutex);
         auto it = g_socks.find(s);
-        if (it == g_socks.end()) return fail(NET_EBADF);
+        if (it == g_socks.end()) return netCall.Ret(fail(NET_EBADF));
         socket = it->second;
     }
     if (socket.p2p) NotImplemented_nid_no_patch("sceNetRecvmsg on a peer-to-peer socket");
     const GuestArena::HostWrite messageOutput(msg, sizeof(*msg));
-    if (!messageOutput.Open()) return fail(NET_EFAULT);
+    if (!messageOutput.Open()) return netCall.Ret(fail(NET_EFAULT));
     std::deque<GuestArena::HostWrite> destinations;
-    for (int i = 0; i < msg->iov_length; ++i) {
-        const auto& entry = msg->iov[i];
+    for (const auto& entry : vectors) {
         if (entry.length == 0) continue;
-        if (!destinations.emplace_back(entry.base, static_cast<std::size_t>(entry.length)).Open()) return fail(NET_EFAULT);
+        if (!destinations.emplace_back(entry.base, static_cast<std::size_t>(entry.length)).Open()) return netCall.Ret(fail(NET_EFAULT));
     }
     const bool datagram = socket.type != NET_SOCK_STREAM;
 #if defined(_WIN32) || defined(__APPLE__)
     if (const int wait = wait_for_local_address(s, socket, total == 0, flags)) {
-        if (wait != RECEIVE_NOTHING) return fail(wait);
-        msg->flags = 0;
-        if (msg->name) msg->name_length = 0;
-        msg->control_length = 0;
-        return 0;
+        if (wait != RECEIVE_NOTHING) return netCall.Ret(fail(wait));
+        header.flags = 0;
+        if (header.name) header.name_length = 0;
+        header.control_length = 0;
+        *msg = header;
+        return netCall.Ret(0);
     }
 #endif
     std::vector<char> buffer;
     try {
         buffer.resize(static_cast<std::size_t>(total) + (datagram ? 1u : 0u));
     } catch (const std::bad_alloc&) {
-        return fail(55);
+        return netCall.Ret(fail(55));
     }
     sockaddr_storage peer{};
     NativeLength peer_length = sizeof(peer);
@@ -1748,26 +1815,28 @@ int64_t APS5_VABI sceNetRecvmsg(int s, NetMsghdr* msg, int flags) {
     });
     if (received < 0) {
 #ifdef _WIN32
-        if (!datagram || WSAGetLastError() != WSAEMSGSIZE) return fail(native_error());
+        if (!datagram || WSAGetLastError() != WSAEMSGSIZE) return netCall.Ret(fail(native_error()));
         received = static_cast<std::int64_t>(buffer.size());
 #else
-        return fail(native_error());
+        return netCall.Ret(fail(native_error()));
 #endif
     }
-    msg->flags = 0;
+    header.flags = 0;
     if (received > total) {
         received = total;
-        msg->flags = NET_MSG_TRUNC;
+        header.flags = NET_MSG_TRUNC;
     }
     std::size_t offset = 0;
-    for (int i = 0; i < msg->iov_length && offset < static_cast<std::size_t>(received); ++i) {
-        const auto count = std::min<std::size_t>(msg->iov[i].length, static_cast<std::size_t>(received) - offset);
-        std::memcpy(msg->iov[i].base, buffer.data() + offset, count);
+    for (const auto& entry : vectors) {
+        if (offset >= static_cast<std::size_t>(received)) break;
+        const auto count = std::min<std::size_t>(entry.length, static_cast<std::size_t>(received) - offset);
+        std::memcpy(entry.base, buffer.data() + offset, count);
         offset += count;
     }
-    if (msg->name && !native_to_guest_address(peer, msg->name, &msg->name_length)) msg->name_length = 0;
-    msg->control_length = 0;
-    return received;
+    if (header.name && !native_to_guest_address(peer, header.name, &header.name_length)) header.name_length = 0;
+    header.control_length = 0;
+    *msg = header;
+    return netCall.Ret(received);
 }
 
 int APS5_VABI sceNetShutdown(int s, int how) {
@@ -1815,6 +1884,11 @@ int APS5_VABI sceNetSetsockopt(int s, int level, int optname, const void* optval
         if (!GuestSocketIsOpen_nid_no_patch(s)) return netCall.Ret(fail(NET_EBADF));
         return netCall.Ret(setsockopt_nid_postfix(s, level, optname, optval, optlen) == 0 ? 0 : fail(*__error_nid_postfix()));
     }
+    if (level == NET_IPPROTO_IPV6) {
+        if (!optval) return netCall.Ret(fail(NET_EINVAL));
+        const int error = GuestSocketSetIpv6LevelOption_nid_no_patch(static_cast<std::uintptr_t>(socket.native->value), socket.family == NET_AF_INET6, optname, optval, optlen);
+        return netCall.Ret(error == 0 ? 0 : fail(error));
+    }
     if (level == NET_IPPROTO_TCP && socket.type != NET_SOCK_STREAM && socket.type != NET_SOCK_STREAM_P2P) return netCall.Ret(fail(NET_EINVAL));
     if (level == NET_IPPROTO_TCP && optname == NET_TCP_NODELAY) {
         if (!optval || optlen < sizeof(int)) return netCall.Ret(fail(NET_EINVAL));
@@ -1835,7 +1909,12 @@ int APS5_VABI sceNetSetsockopt(int s, int level, int optname, const void* optval
     if (!optval || optlen < sizeof(int)) return netCall.Ret(fail(NET_EINVAL));
     int value = 0;
     std::memcpy(&value, optval, sizeof(value));
-    if (optname == NET_SO_NBIO) {
+    if (optname == NET_SO_OOBINLINE) {
+        const int enabled = value != 0;
+        if (socket.type == NET_SOCK_STREAM &&
+            ::setsockopt(socket.native->value, SOL_SOCKET, SO_OOBINLINE, reinterpret_cast<const char*>(&enabled), sizeof(enabled)) != 0)
+            return netCall.Ret(fail(native_error()));
+    } else if (optname == NET_SO_NBIO) {
 #ifndef _WIN32
         const int old_flags = fcntl(socket.native->value, F_GETFL, 0);
         if (old_flags < 0 || fcntl(socket.native->value, F_SETFL,
@@ -1861,6 +1940,7 @@ int APS5_VABI sceNetSetsockopt(int s, int level, int optname, const void* optval
     std::lock_guard lk(g_mutex);
     auto it = g_socks.find(s);
     if (it != g_socks.end()) {
+        if (optname == NET_SO_OOBINLINE && it->second.native == socket.native) it->second.oobInline = value != 0;
         if (optname == NET_SO_NBIO) it->second.native->nonblock = value != 0;
         if (optname == NET_SO_RCVTIMEO) it->second.native->receiveTimeout = value;
         if (optname == NET_SO_SNDTIMEO) it->second.native->sendTimeout = value;
@@ -1875,17 +1955,57 @@ int APS5_VABI sceNetSetsockopt(int s, int level, int optname, const void* optval
 int APS5_VABI sceNetGetsockopt(int s, int level, int optname, void* optval, uint32_t* optlen) {
     NetBridgeCall netCall("libSceNet", __func__, [&](NetBridgeJson& netIn) { netIn.Int("s", s); netIn.Int("level", level); netIn.Int("optname", optname); });
     Sock socket;
+    bool found = false;
     {
         std::lock_guard lk(g_mutex);
         auto it = g_socks.find(s);
-        if (it == g_socks.end()) return netCall.Ret(fail(NET_EBADF));
-        socket = it->second;
+        if (it != g_socks.end()) {
+            socket = it->second;
+            found = true;
+        }
+    }
+    if (!found) {
+        if (!GuestSocketIsOpen_nid_no_patch(s)) return netCall.Ret(fail(NET_EBADF));
+        return netCall.Ret(getsockopt_nid_postfix(s, level, optname, optval, optlen) == 0 ? 0 : fail(*__error_nid_postfix()));
     }
     if (optval == nullptr || optlen == nullptr) return netCall.Ret(fail(NET_EINVAL));
+    if (level == NET_SOL_SOCKET && (optname == NET_SO_TYPE || optname == NET_SO_ACCEPTCONN)) {
+        const int value = optname == NET_SO_TYPE ? socket.type : socket.listening ? NET_SO_ACCEPTCONN : 0;
+        *optlen = std::min(*optlen, static_cast<std::uint32_t>(sizeof(value)));
+        std::memcpy(optval, &value, *optlen);
+        return netCall.Ret(0);
+    }
+    if (level == NET_SOL_SOCKET && optname == NET_SO_OOBINLINE) {
+        int enabled = 0;
+        if (socket.type == NET_SOCK_STREAM) {
+            NativeLength size = sizeof(enabled);
+            if (::getsockopt(socket.native->value, SOL_SOCKET, SO_OOBINLINE, reinterpret_cast<char*>(&enabled), &size) != 0)
+                return netCall.Ret(fail(native_error()));
+        } else {
+            enabled = socket.oobInline;
+        }
+        const int value = enabled != 0 ? NET_SO_OOBINLINE : 0;
+        *optlen = std::min(*optlen, static_cast<std::uint32_t>(sizeof(value)));
+        std::memcpy(optval, &value, *optlen);
+        return netCall.Ret(0);
+    }
     if (level == NET_SOL_SOCKET && optname == NET_SO_PROTOCOL) {
         if (socket.type == NET_SOCK_RAW) NotImplemented_nid_no_patch(__func__);
         *optlen = std::min(*optlen, static_cast<std::uint32_t>(sizeof(socket.protocol)));
         std::memcpy(optval, &socket.protocol, *optlen);
+        return netCall.Ret(0);
+    }
+    if (level == NET_IPPROTO_IPV6) {
+        int value = 0;
+        std::uint32_t length = *optlen;
+        const int error = GuestSocketGetIpv6LevelOption_nid_no_patch(static_cast<std::uintptr_t>(socket.native->value), socket.family == NET_AF_INET6, optname, &value, &length);
+        if (error != 0) return netCall.Ret(fail(error));
+        const GuestArena::HostWrite destination(length == 0 ? nullptr : optval, length);
+        if (!destination.Open()) return netCall.Ret(fail(NET_EFAULT));
+        const GuestArena::HostWrite lengthOutput(optlen, sizeof(*optlen));
+        if (!lengthOutput.Open()) return netCall.Ret(fail(NET_EFAULT));
+        if (length != 0) std::memcpy(optval, &value, length);
+        *optlen = length;
         return netCall.Ret(0);
     }
     if (level == NET_SOL_SOCKET && (optname == NET_SO_RCVTIMEO || optname == NET_SO_SNDTIMEO)) {
@@ -1918,11 +2038,22 @@ int APS5_VABI sceNetGetsockopt(int s, int level, int optname, void* optval, uint
         std::memcpy(optval, &value, *optlen);
         return netCall.Ret(0);
     }
-    if (*optlen < sizeof(int)) return netCall.Ret(fail(NET_EINVAL));
+    if (*optlen < sizeof(int) &&
+        !(level == NET_SOL_SOCKET && (optname == NET_SO_REUSEADDR || optname == NET_SO_BROADCAST))) return netCall.Ret(fail(NET_EINVAL));
     if (level == NET_IPPROTO_TCP) return netCall.Ret(fail(NET_ENOPROTOOPT));
     if (level != NET_SOL_SOCKET) return netCall.Ret(fail(NET_EOPNOTSUPP));
     int value = 0;
     switch (timeout_option(optname)) {
+        case NET_SO_REUSEADDR:
+        case NET_SO_BROADCAST: {
+            int enabled = 0;
+            NativeLength size = sizeof(enabled);
+            const int nativeOption = optname == NET_SO_REUSEADDR ? SO_REUSEADDR : SO_BROADCAST;
+            if (::getsockopt(socket.native->value, SOL_SOCKET, nativeOption, reinterpret_cast<char*>(&enabled), &size) != 0)
+                return netCall.Ret(fail(native_error()));
+            value = enabled != 0 ? optname : 0;
+            break;
+        }
         case NET_SO_NBIO: value = socket.native->nonblock ? 1 : 0; break;
         case NET_SO_RCVTIMEO: value = socket.native->receiveTimeout; break;
         case NET_SO_SNDTIMEO: value = socket.native->sendTimeout; break;
@@ -1954,8 +2085,8 @@ int APS5_VABI sceNetGetsockopt(int s, int level, int optname, void* optval, uint
         }
         default: return netCall.Ret(fail(NET_EOPNOTSUPP));
     }
-    std::memcpy(optval, &value, sizeof(value));
-    *optlen = sizeof(value);
+    *optlen = std::min(*optlen, static_cast<std::uint32_t>(sizeof(value)));
+    std::memcpy(optval, &value, *optlen);
     return netCall.Ret(0);
 }
 
@@ -2065,25 +2196,47 @@ static_assert(sizeof(NetSockInfo6) == sizeof(NetSockInfo) && offsetof(NetSockInf
     offsetof(NetSockInfo6, recv_buffer_size) == offsetof(NetSockInfo, recv_buffer_size) && offsetof(NetSockInfo6, local_adr6) == 0x6C &&
     offsetof(NetSockInfo6, remote_adr6) == 0x7C && offsetof(NetSockInfo6, tx_drops) == offsetof(NetSockInfo, tx_drops));
 
-static int sock_buffer_size(const Sock& socket, bool send, std::int32_t& value) {
-    value = send ? socket.snd_buffer : socket.rcv_buffer;
-    if (value != 0) return 0;
-    NativeLength size = sizeof(value);
-    return ::getsockopt(socket.native->value, SOL_SOCKET, send ? SO_SNDBUF : SO_RCVBUF, reinterpret_cast<char*>(&value), &size) == 0 ? 0 : native_error();
-}
 
-static int fill_sock_info(int s, NetSockInfo& record) {
-    Sock socket;
+struct SockInfoSource {
+    std::shared_ptr<void> owner;
+    NativeSocket native;
+    int family;
+    int type;
+    bool nonblock;
+    int rcv_buffer;
+    int snd_buffer;
+};
+
+static bool find_sock_info_source(int s, SockInfoSource& source) {
     {
         std::lock_guard lk(g_mutex);
         const auto it = g_socks.find(s);
-        if (it == g_socks.end()) return NET_EBADF;
-        socket = it->second;
+        if (it != g_socks.end()) {
+            const Sock& socket = it->second;
+            source = {socket.native, socket.native->value, socket.family, socket.type, socket.native->nonblock, socket.rcv_buffer, socket.snd_buffer};
+            return true;
+        }
     }
+    KernelSocketPoll::Description kernel;
+    if (!KernelDescribeSocket_nid_no_patch(s, &kernel)) return false;
+    source = {kernel.owner, static_cast<NativeSocket>(kernel.native), kernel.family, kernel.type, kernel.nonblocking, 0, 0};
+    return true;
+}
+
+static int sock_buffer_size(const SockInfoSource& socket, bool send, std::int32_t& value) {
+    value = send ? socket.snd_buffer : socket.rcv_buffer;
+    if (value != 0) return 0;
+    NativeLength size = sizeof(value);
+    return ::getsockopt(socket.native, SOL_SOCKET, send ? SO_SNDBUF : SO_RCVBUF, reinterpret_cast<char*>(&value), &size) == 0 ? 0 : native_error();
+}
+
+static int fill_sock_info(int s, NetSockInfo& record) {
+    SockInfoSource socket;
+    if (!find_sock_info_source(s, socket)) return NET_EBADF;
     if (socket.family != NET_AF_INET) return NET_EAFNOSUPPORT;
     sockaddr_in local{};
     NativeLength length = sizeof(local);
-    if (::getsockname(socket.native->value, reinterpret_cast<sockaddr*>(&local), &length) != 0) {
+    if (::getsockname(socket.native, reinterpret_cast<sockaddr*>(&local), &length) != 0) {
 #ifdef _WIN32
         if (WSAGetLastError() != WSAEINVAL) return native_error();
 #else
@@ -2092,7 +2245,7 @@ static int fill_sock_info(int s, NetSockInfo& record) {
     }
     sockaddr_in remote{};
     length = sizeof(remote);
-    if (::getpeername(socket.native->value, reinterpret_cast<sockaddr*>(&remote), &length) != 0) {
+    if (::getpeername(socket.native, reinterpret_cast<sockaddr*>(&remote), &length) != 0) {
         const int error = native_error();
         if (error != NET_ENOTCONN) return error;
     }
@@ -2105,7 +2258,14 @@ static int fill_sock_info(int s, NetSockInfo& record) {
     record.remote_adr = remote.sin_addr.s_addr;
     record.local_port = local.sin_port;
     record.remote_port = remote.sin_port;
-    record.flags = NET_SOCKINFO_F_SELF | (socket.native->nonblock ? NET_SOCKINFO_F_NONBLOCK : 0);
+    record.flags = NET_SOCKINFO_F_SELF | (socket.nonblock ? NET_SOCKINFO_F_NONBLOCK : 0);
+#ifdef _WIN32
+    u_long pending = 0;
+    if (::ioctlsocket(socket.native, FIONREAD, &pending) == 0) record.recv_queue_length = static_cast<std::int32_t>(pending);
+#else
+    int pending = 0;
+    if (::ioctl(socket.native, FIONREAD, &pending) == 0) record.recv_queue_length = pending;
+#endif
     return 0;
 }
 
@@ -2114,10 +2274,19 @@ int APS5_VABI sceNetGetSockInfo(int s, void* info, int n, int flags) {
     if ((flags & ~NET_SOCKINFO_TIME_WAIT) != 0) return netCall.Ret(fail(NET_EINVAL));
     std::vector<int> listed;
     if (s < 0) {
-        std::lock_guard lk(g_mutex);
-        for (const auto& [descriptor, socket] : g_socks) {
-            if (socket.family == NET_AF_INET) listed.push_back(descriptor);
+        {
+            std::lock_guard lk(g_mutex);
+            for (const auto& [descriptor, socket] : g_socks) {
+                if (socket.family == NET_AF_INET) listed.push_back(descriptor);
+            }
         }
+        std::vector<int> kernel;
+        KernelListSockets_nid_no_patch(&kernel);
+        for (const int descriptor : kernel) {
+            KernelSocketPoll::Description description;
+            if (KernelDescribeSocket_nid_no_patch(descriptor, &description) && description.family == NET_AF_INET) listed.push_back(descriptor);
+        }
+        std::sort(listed.begin(), listed.end());
     }
     if (!info) return netCall.Ret(s < 0 ? static_cast<int>(listed.size()) : fail(NET_EINVAL));
     if (n < 1) return netCall.Ret(fail(NET_EINVAL));
@@ -2164,9 +2333,10 @@ static int fill_sock_info6(int s, NetSockInfo6& record, bool includeIpv4) {
         const int error = native_error();
         if (error != NET_ENOTCONN) return error;
     }
+    const SockInfoSource source{socket.native, socket.native->value, socket.family, socket.type, socket.native->nonblock, socket.rcv_buffer, socket.snd_buffer};
     record = {};
-    if (const int error = sock_buffer_size(socket, false, record.recv_buffer_size)) return error;
-    if (const int error = sock_buffer_size(socket, true, record.send_buffer_size)) return error;
+    if (const int error = sock_buffer_size(source, false, record.recv_buffer_size)) return error;
+    if (const int error = sock_buffer_size(source, true, record.send_buffer_size)) return error;
     record.s = s;
     record.socket_type = static_cast<std::int8_t>(socket.type);
     record.flags = NET_SOCKINFO_F_SELF | (socket.native->nonblock ? NET_SOCKINFO_F_NONBLOCK : 0);
@@ -2290,13 +2460,19 @@ int APS5_VABI sceNetEpollAbort(int eid, int flags) {
 
 int APS5_VABI sceNetEpollControl(int eid, int op, int id, const NetEpollEvent* event) {
     NetBridgeCall netCall("libSceNet", __func__, [&](NetBridgeJson& netIn) { netIn.Int("eid", eid); netIn.Int("op", op); netIn.Int("id", id); });
+    bool kernel = false;
+    {
+        std::lock_guard lk(g_mutex);
+        kernel = g_socks.count(id) == 0;
+    }
+    kernel = kernel && GuestSocketIsOpen_nid_no_patch(id);
     std::lock_guard lk(g_mutex);
     if (g_epolls.count(eid) == 0) {
         return netCall.Ret(fail(NET_EBADF));
     }
     if (op != NET_EPOLL_CTL_ADD && op != NET_EPOLL_CTL_MOD && op != NET_EPOLL_CTL_DEL) return netCall.Ret(fail(NET_EINVAL));
     if (op != NET_EPOLL_CTL_DEL && !event) return netCall.Ret(fail(NET_EINVAL));
-    if (g_socks.count(id) == 0) return netCall.Ret(fail(NET_EBADF));
+    if (!kernel && g_socks.count(id) == 0) return netCall.Ret(fail(NET_EBADF));
     auto& registrations = g_epoll_socks[eid];
     if (op == NET_EPOLL_CTL_ADD) {
         if (registrations.count(id) != 0) return netCall.Ret(fail(NET_EADDRINUSE));
@@ -2319,12 +2495,15 @@ int APS5_VABI sceNetEpollWait(int eid, NetEpollEvent* events, int maxevents, int
         int descriptor;
         std::shared_ptr<const NetEpollEvent> registration;
         Sock socket;
+        std::shared_ptr<void> kernelOwner;
+        NativeSocket native = INVALID_NATIVE_SOCKET;
     };
     const auto deadline = timeout > 0
         ? std::chrono::steady_clock::now() + std::chrono::microseconds(timeout)
         : std::chrono::steady_clock::time_point::max();
     for (;;) {
         std::vector<Watch> watches;
+        std::vector<Watch> kernelWatches;
         {
             std::lock_guard lk(g_mutex);
             if (g_epolls.count(eid) == 0) return netCall.Ret(fail(NET_EBADF));
@@ -2333,8 +2512,29 @@ int APS5_VABI sceNetEpollWait(int eid, NetEpollEvent* events, int maxevents, int
             if (registration != g_epoll_socks.end()) {
                 for (const auto& entry : registration->second) {
                     const auto socket = g_socks.find(entry.first);
-                    if (socket == g_socks.end()) continue;
-                    watches.push_back({entry.first, entry.second, socket->second});
+                    if (socket == g_socks.end()) kernelWatches.push_back({entry.first, entry.second, Sock{}, nullptr, INVALID_NATIVE_SOCKET});
+                    else watches.push_back({entry.first, entry.second, socket->second, nullptr, socket->second.native->value});
+                }
+            }
+        }
+        std::vector<Watch> closedWatches;
+        for (auto& watch : kernelWatches) {
+            std::uintptr_t native = 0;
+            if (KernelLookupSocketNative_nid_no_patch(watch.descriptor, &watch.kernelOwner, &native)) {
+                watch.native = static_cast<NativeSocket>(native);
+                watches.push_back(std::move(watch));
+            } else {
+                closedWatches.push_back(std::move(watch));
+            }
+        }
+        if (!closedWatches.empty()) {
+            std::lock_guard lk(g_mutex);
+            const auto registration = g_epoll_socks.find(eid);
+            if (registration != g_epoll_socks.end()) {
+                for (const auto& watch : closedWatches) {
+                    const auto entry = registration->second.find(watch.descriptor);
+                    if (entry != registration->second.end() && entry->second == watch.registration && g_socks.count(watch.descriptor) == 0)
+                        registration->second.erase(entry);
                 }
             }
         }
@@ -2352,14 +2552,14 @@ int APS5_VABI sceNetEpollWait(int eid, NetEpollEvent* events, int maxevents, int
 #ifdef _WIN32
         std::vector<WSAPOLLFD> descriptors(watches.size());
         for (std::size_t index = 0; index < descriptors.size(); ++index) {
-            descriptors[index].fd = watches[index].socket.native->value;
+            descriptors[index].fd = watches[index].native;
             if (watches[index].registration->events & 1) descriptors[index].events |= POLLRDNORM;
             if (watches[index].registration->events & 2) descriptors[index].events |= POLLWRNORM;
         }
 #else
         std::vector<pollfd> descriptors(watches.size());
         for (std::size_t index = 0; index < descriptors.size(); ++index) {
-            descriptors[index].fd = watches[index].socket.native->value;
+            descriptors[index].fd = watches[index].native;
             if (watches[index].registration->events & 1) descriptors[index].events |= POLLIN;
             if (watches[index].registration->events & 2) descriptors[index].events |= POLLOUT;
         }
@@ -2375,7 +2575,8 @@ int APS5_VABI sceNetEpollWait(int eid, NetEpollEvent* events, int maxevents, int
 #ifdef _WIN32
         const int ready_count = WSAPoll(descriptors.data(), static_cast<ULONG>(descriptors.size()), wait_ms);
         for (std::size_t index = 0; index < descriptors.size(); ++index)
-            descriptors[index].revents = closed_stream_events(watches[index].socket, descriptors[index].revents, descriptors[index].events);
+            if (!watches[index].kernelOwner)
+                descriptors[index].revents = closed_stream_events(watches[index].socket, descriptors[index].revents, descriptors[index].events);
 #else
         const int ready_count = ::poll(descriptors.data(), descriptors.size(), wait_ms);
 #endif
@@ -2417,22 +2618,22 @@ int APS5_VABI sceNetEpollWait(int eid, NetEpollEvent* events, int maxevents, int
 
 // Byte order and text conversion.
 uint32_t APS5_VABI sceNetHtonl_nid_postfix(uint32_t host32) {
- NetBridgeCall netCall("libSceNet", __func__, [&](NetBridgeJson& netIn) { netIn.Uint("host32", host32); });
+    NetBridgeCall netCall("libSceNet", __func__, [&](NetBridgeJson& netIn) { netIn.Uint("host32", host32); });
  return netCall.Ret(swap32(host32)); }
 uint16_t APS5_VABI sceNetHtons_nid_postfix(uint16_t host16) {
- NetBridgeCall netCall("libSceNet", __func__, [&](NetBridgeJson& netIn) { netIn.Uint("host16", host16); });
+    NetBridgeCall netCall("libSceNet", __func__, [&](NetBridgeJson& netIn) { netIn.Uint("host16", host16); });
  return netCall.Ret(swap16(host16)); }
 uint64_t APS5_VABI sceNetHtonll(std::uint64_t host64) {
- NetBridgeCall netCall("libSceNet", __func__, [&](NetBridgeJson& netIn) { netIn.Uint("host64", host64); });
+    NetBridgeCall netCall("libSceNet", __func__, [&](NetBridgeJson& netIn) { netIn.Uint("host64", host64); });
  return netCall.Ret(swap64(host64)); }
 uint64_t APS5_VABI sceNetNtohll(std::uint64_t net64) {
- NetBridgeCall netCall("libSceNet", __func__, [&](NetBridgeJson& netIn) { netIn.Uint("net64", net64); });
+    NetBridgeCall netCall("libSceNet", __func__, [&](NetBridgeJson& netIn) { netIn.Uint("net64", net64); });
  return netCall.Ret(swap64(net64)); }
 uint32_t APS5_VABI sceNetNtohl_nid_postfix(uint32_t net32) {
- NetBridgeCall netCall("libSceNet", __func__, [&](NetBridgeJson& netIn) { netIn.Uint("net32", net32); });
+    NetBridgeCall netCall("libSceNet", __func__, [&](NetBridgeJson& netIn) { netIn.Uint("net32", net32); });
  return netCall.Ret(swap32(net32)); }
 uint16_t APS5_VABI sceNetNtohs_nid_postfix(uint16_t net16) {
- NetBridgeCall netCall("libSceNet", __func__, [&](NetBridgeJson& netIn) { netIn.Uint("net16", net16); });
+    NetBridgeCall netCall("libSceNet", __func__, [&](NetBridgeJson& netIn) { netIn.Uint("net16", net16); });
  return netCall.Ret(swap16(net16)); }
 
 int APS5_VABI sceNetInetPton(int af, const char* src, void* dst) {
@@ -2444,7 +2645,7 @@ int APS5_VABI sceNetInetPton(int af, const char* src, void* dst) {
         return netCall.Ret(fail(NET_EAFNOSUPPORT));
     }
     if (dst == nullptr && af == NET_AF_INET6) {
-        return fail(NET_EINVAL);
+        return netCall.Ret(fail(NET_EINVAL));
     }
     const auto convert = [](int family, const std::string& text, unsigned char* address) {
 #ifdef _WIN32
@@ -2458,7 +2659,7 @@ int APS5_VABI sceNetInetPton(int af, const char* src, void* dst) {
     const bool dottedTail = af == NET_AF_INET6 && colon != std::string::npos && head.find('.', colon) != std::string::npos;
     std::array<unsigned char, 16> address{};
     if (dottedTail && convert(AF_INET, head.substr(colon + 1), address.data()) != 1) {
-        return 0;
+        return netCall.Ret(0);
     }
     const std::string text = af == NET_AF_INET || dottedTail ? head : std::string(src);
     const int converted = af == NET_AF_INET6 ? __inet_pton_nid_postfix(af, text.c_str(), address.data()) : convert(AF_INET, text, address.data());
@@ -2472,11 +2673,11 @@ const char* APS5_VABI sceNetInetNtop(int af, const void* src, char* dst, uint32_
     NetBridgeCall netCall("libSceNet", __func__, [&](NetBridgeJson& netIn) { netIn.Int("af", af); netIn.Uint("size", size); });
     if (src == nullptr || dst == nullptr) {
         set_errno(NET_EINVAL);
-        return nullptr;
+        return netCall.Ret(nullptr);
     }
     if (af != NET_AF_INET && af != NET_AF_INET6) {
         set_errno(NET_EAFNOSUPPORT);
-        return nullptr;
+        return netCall.Ret(nullptr);
     }
     char text[INET6_ADDRSTRLEN];
 #ifdef _WIN32
@@ -2486,15 +2687,15 @@ const char* APS5_VABI sceNetInetNtop(int af, const void* src, char* dst, uint32_
 #endif
     if (!result) {
         set_errno(native_error());
-        return nullptr;
+        return netCall.Ret(nullptr);
     }
     const auto length = std::strlen(text) + 1;
     if (length > size) {
         set_errno(NET_ENOSPC);
-        return nullptr;
+        return netCall.Ret(nullptr);
     }
     std::memcpy(dst, text, length);
-    return dst;
+    return netCall.Ret(dst);
 }
 
 int APS5_VABI sceNetEtherNtostr(const NetEtherAddr* n, char* str, size_t len) {
@@ -2510,7 +2711,7 @@ int APS5_VABI sceNetEtherStrton(const char* text, NetEtherAddr* address) {
     NetBridgeCall netCall("libSceNet", __func__);
     if (text == nullptr || address == nullptr) return netCall.Ret(fail(NET_EINVAL));
     for (std::size_t index = 0; index < 17; ++index) {
-        if (text[index] == '\0') return fail(NET_EINVAL);
+        if (text[index] == '\0') return netCall.Ret(fail(NET_EINVAL));
     }
     const auto hexDigit = [](char character) {
         if (character >= '0' && character <= '9') return character - '0';
@@ -2850,13 +3051,13 @@ int APS5_VABI sceNetShowRoute6WithMemory(std::int32_t poolId) {
 NetRouteInfo* APS5_VABI sceNetAllocateAllRouteInfo(std::int32_t interfaceId, std::int32_t* count) {
     NetBridgeCall netCall("libSceNet", __func__, [&](NetBridgeJson& netIn) { netIn.Int("interface_id", interfaceId); });
     NotImplemented_nid_no_patch(__func__);
-    return 0;
+    return netCall.Ret(nullptr);
 }
 
 NetRouteInfo* APS5_VABI sceNetAllocateAllRouteInfo6(std::int32_t interfaceId, std::int32_t* count) {
     NetBridgeCall netCall("libSceNet", __func__, [&](NetBridgeJson& netIn) { netIn.Int("interface_id", interfaceId); });
     NotImplemented_nid_no_patch(__func__);
-    return 0;
+    return netCall.Ret(nullptr);
 }
 
 int APS5_VABI sceNetControl(std::uint32_t interfaceId, std::int32_t interfaceIndex, std::uint32_t command, void* data, std::uint32_t dataSize) {
@@ -2954,9 +3155,9 @@ const char* APS5_VABI sceNetGetIfName(std::uint32_t index) {
         "lo0", "eth0", "eth1", "dbg0", "wlan0", "wlan1", "gbe0", "bt0", "phone0", "pppoe0"};
     if (index >= names.size()) {
         set_errno(NET_EINVAL);
-        return "";
+        return netCall.Ret("");
     }
-    return names[index];
+    return netCall.Ret(names[index]);
 }
 
 int APS5_VABI sceNetGetIfnameNumList(std::uint32_t* interfaceIds, std::int32_t capacity, std::uint32_t flags) {
@@ -3007,7 +3208,12 @@ int APS5_VABI sceNetGetSystemMemInfo(NetSystemMemoryInfo* info, std::uint32_t fl
 
 int APS5_VABI sceNetInitParam(const NetInitializeParameter* parameter) {
     NetBridgeCall netCall("libSceNet", __func__);
-    NotImplemented_nid_no_patch(__func__);
+    std::lock_guard lk(g_mutex);
+    if (g_net_init_param_set) return netCall.Ret(fail(NET_EBUSY));
+    if (parameter == nullptr) return netCall.Ret(fail(NET_EINVAL));
+    std::memcpy(g_net_init_param.data(), parameter, g_net_init_param.size());
+    g_net_init_param_set = true;
+    g_net_inited = true;
     return netCall.Ret(0);
 }
 
@@ -3024,7 +3230,7 @@ int APS5_VABI sceNetInetPtonEx(int af, const char* src, void* dst, int) {
         return netCall.Ret(0);
     }
     if (dst == nullptr) {
-        return 1;
+        return netCall.Ret(1);
     }
     const std::array<unsigned char, 4> bytes{static_cast<unsigned char>(address >> 24), static_cast<unsigned char>(address >> 16),
                                              static_cast<unsigned char>(address >> 8), static_cast<unsigned char>(address)};
@@ -3055,6 +3261,12 @@ int APS5_VABI sceNetIoctl(int socketId, std::uint32_t command, void* argument) {
 #ifdef _WIN32
     u_long available = 0;
     if (ioctlsocket(native->value, FIONREAD, &available) != 0) return netCall.Ret(fail(native_error()));
+#elif defined(__APPLE__)
+    int available = 0;
+    socklen_t size = sizeof(available);
+    const int queried = native->stream ? ::ioctl(native->value, FIONREAD, &available)
+                                    : ::getsockopt(native->value, SOL_SOCKET, SO_NREAD, &available, &size);
+    if (queried != 0) return netCall.Ret(fail(native_error()));
 #else
     int available = 0;
     if (::ioctl(native->value, FIONREAD, &available) != 0) return netCall.Ret(fail(native_error()));
@@ -3067,17 +3279,17 @@ void* APS5_VABI sceNetMemoryAllocate(std::int32_t size, int flags) {
     NetBridgeCall netCall("libSceNet", __func__, [&](NetBridgeJson& netIn) { netIn.Int("size", size); netIn.Int("flags", flags); });
     constexpr int zeroFill = 2;
     constexpr std::size_t blockAlignment = 64;
-    if (size <= 0) return nullptr;
+    if (size <= 0) return netCall.Ret(nullptr);
     void* memory = nullptr;
     try {
         memory = GuestHeap::GuestHeapAlign_nid_postfix(blockAlignment, static_cast<std::size_t>(size));
     } catch (const std::bad_alloc&) {
-        return nullptr;
+        return netCall.Ret(nullptr);
     } catch (const std::length_error&) {
-        return nullptr;
+        return netCall.Ret(nullptr);
     }
     if ((flags & zeroFill) != 0) std::memset(memory, 0, static_cast<std::size_t>(size));
-    return memory;
+    return netCall.Ret(memory);
 }
 
 void APS5_VABI sceNetMemoryFree(void* memory) {
@@ -3118,7 +3330,7 @@ int APS5_VABI sceNetSyncDestroy(NetSyncObject* sync) {
 NetSyncObject* APS5_VABI sceNetSyncGet(std::uint32_t index) {
     NetBridgeCall netCall("libSceNet", __func__, [&](NetBridgeJson& netIn) { netIn.Uint("index", index); });
     NotImplemented_nid_no_patch(__func__);
-    return 0;
+    return netCall.Ret(nullptr);
 }
 
 int APS5_VABI sceNetSyncSignal(NetSyncObject* sync, std::uint32_t signals) {
@@ -3205,7 +3417,7 @@ int APS5_VABI sceNetShowNetstatExForBuffer(char* buffer, std::int32_t bufferSize
 const char* APS5_VABI sceNetInetNtopWithScopeId(std::int32_t family, const void* address, char* text, std::uint32_t size, std::uint32_t scopeId) {
     NetBridgeCall netCall("libSceNet", __func__, [&](NetBridgeJson& netIn) { netIn.Int("family", family); netIn.Uint("size", size); netIn.Uint("scope_id", scopeId); });
     NotImplemented_nid_no_patch(__func__);
-    return 0;
+    return netCall.Ret(nullptr);
 }
 
 int APS5_VABI sceNetInetPtonWithScopeId(std::int32_t family, const char* text, void* address, std::uint32_t* scopeId) {
@@ -3238,7 +3450,10 @@ int APS5_VABI sceNetShowRoute6ForBuffer(char* buffer, std::int32_t bufferSize, s
 
 int APS5_VABI sceNetConfigGetIfFlags(std::uint32_t interfaceId, std::uint32_t* flags) {
     NetBridgeCall netCall("libSceNet", __func__, [&](NetBridgeJson& netIn) { netIn.Uint("interface_id", interfaceId); });
-    NotImplemented_nid_no_patch(__func__);
+    if (flags == nullptr) return netCall.Ret(NET_CONFIG_ERROR_NULL_FLAGS);
+    if (interfaceId >= 10) return netCall.Ret(-1);
+    if (interfaceId != NET_IF_LO0) throw std::runtime_error("sceNetConfigGetIfFlags: interface " + std::to_string(interfaceId) + " is not implemented");
+    *flags = NET_IFF_UP | NET_IFF_LOOPBACK | NET_IFF_RUNNING | NET_IFF_MULTICAST;
     return netCall.Ret(0);
 }
 

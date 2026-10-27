@@ -12,12 +12,15 @@ namespace NetBridgeWire {
 
 constexpr std::size_t HeaderSize = 12;
 constexpr std::uint32_t MaxPayload = 16u * 1024u * 1024u;
-constexpr std::uint16_t ProtocolVersion = 0;
+constexpr std::uint16_t ProtocolVersion = 1;
+constexpr std::uint32_t MaxHandshakePayload = 1024;
 constexpr std::uint16_t ReplyBit = 0x8000;
 
 constexpr std::uint16_t KindHello = 0x0001;
 constexpr std::uint16_t KindWelcome = 0x0002;
 constexpr std::uint16_t KindReject = 0x0003;
+constexpr std::uint16_t KindChallenge = 0x0004;
+constexpr std::uint16_t KindAuth = 0x0005;
 constexpr std::uint16_t KindUnsupported = 0x8000;
 constexpr std::uint16_t KindState = 0x0101;
 constexpr std::uint16_t KindFeature = 0x0102;
