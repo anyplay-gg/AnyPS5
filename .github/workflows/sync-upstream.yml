@@ -1,7 +1,7 @@
 name: Sync with upstream
 
 # Keeps one open pull request that merges boykopovar/AnyPS5 main into this fork. The branch is
-# sync/upstream-<date>, cut from main, and the merge is a merge commit. The job runs weekly and on
+# sync/upstream-<date>, cut from main, and the merge is a merge commit. The job runs daily and on
 # demand. Nothing here merges the pull request: a person reads it, the builds run on it, and then it
 # is merged (docs/dev/FORK.md lists what the fork changes and why).
 #
@@ -17,7 +17,7 @@ name: Sync with upstream
 
 on:
   schedule:
-    - cron: "17 4 * * 1"
+    - cron: "17 4 * * *"
   workflow_dispatch:
     inputs:
       build:
