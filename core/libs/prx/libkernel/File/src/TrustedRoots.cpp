@@ -69,7 +69,7 @@ extern "C" std::string ExportHostRoots_nid_no_patch(HCERTSTORE roots, HCERTSTORE
 extern "C" std::string HostTrustedTlsRoots_nid_no_patch() {
     const auto closeStore = [](void* store) { CertCloseStore(store, 0); };
     using Store = std::unique_ptr<void, decltype(closeStore)>;
-    const DWORD flags = CERT_SYSTEM_STORE_CURRENT_USER | CERT_STORE_READONLY_FLAG | CERT_STORE_OPEN_EXISTING_FLAG;
+    const DWORD flags = CERT_SYSTEM_STORE_CURRENT_USER | CERT_STORE_READONLY_FLAG;
     Store roots(CertOpenStore(CERT_STORE_PROV_SYSTEM_W, 0, 0, flags, L"ROOT"), closeStore);
     RequireCrypto(roots != nullptr, "Opening the Windows trusted root store");
     Store disallowed(CertOpenStore(CERT_STORE_PROV_SYSTEM_W, 0, 0, flags, L"Disallowed"), closeStore);
