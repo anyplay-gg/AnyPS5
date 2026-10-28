@@ -1,4 +1,5 @@
 #include "prx/libSceAgcDriver/Execution/include/ProfileOutput.hpp"
+#include "prx/libSceNetCtl/include/NetBridge.hpp"
 #include "prx/libSceAgcDriver/Execution/include/FrameDumpIo.hpp"
 #include "prx/libSceAgcDriver/Graphics/include/PipelineSpecialization.hpp"
 #include "prx/libSceAgcDriver/Execution/include/CaptureTrace.hpp"
@@ -555,6 +556,9 @@ struct VulkanDevice::State {
         std::uint32_t dumpScale = 1;
         bool dumpRecorded = false;
         bool dumpScreenshot = false;
+        bool dumpShare = false;
+        // The presentation count of the shared picture (the game's flips); see `flips`.
+        std::uint32_t shareFlip = 0;
         int dumpIndex = 0;
         std::uint32_t imageIndex = 0;
         bool inFlight = false;
@@ -587,6 +591,9 @@ struct VulkanDevice::State {
     std::uint32_t queueIndex = 0;
     int nextDumpIndex = 0;
     bool nextDumpScreenshot = false;
+    bool nextDumpShare = false;
+    // Presented pictures, counted on the presenter thread: the `frame` of a shared picture.
+    std::uint32_t flips = 0;
     FrameDumpWriter dumpWriter;
 
     template<typename TFunction>
@@ -814,6 +821,14 @@ struct VulkanDevice::State {
         require(slot.dumpBuffer != nullptr, "frame dump was not recorded");
         const auto full = slot.dumpBuffer->Bytes();
         const auto index = slot.dumpIndex;
+        if (slot.dumpShare) {
+            if (full.size() == static_cast<std::size_t>(slot.dumpWidth) * slot.dumpHeight * 4) {
+                // The engine's monotonic clock at the picture's submission, not at the retire.
+                const auto presentUs = std::chrono::duration_cast<std::chrono::microseconds>(slot.submittedAt.time_since_epoch()).count();
+                NetBridgeShareSubmitFrame_nid_no_patch(full.data(), slot.dumpWidth, slot.dumpHeight, slot.dumpWidth * 4, static_cast<std::uint64_t>(presentUs), slot.shareFlip);
+            }
+            return;
+        }
         if (slot.dumpScreenshot) {
             require(full.size() == static_cast<std::size_t>(slot.dumpWidth) * slot.dumpHeight * 4, "invalid screenshot pixels");
             dumpWriter.Enqueue(index, slot.dumpWidth, slot.dumpHeight, true, std::vector<std::byte>(full.begin(), full.end()));
@@ -3546,6 +3561,7 @@ bool VulkanDevice::PresentDisplayBuffer(const DisplayBuffer& buffer, const Displ
 
 bool VulkanDevice::takeScreenshot(bool dumpFrame) {
     state->nextDumpScreenshot = !dumpFrame && state->dumpWriter.Idle() && Screenshot::Take();
+    state->nextDumpShare = !dumpFrame && !state->nextDumpScreenshot && state->surfaceColorSpace != VK_COLOR_SPACE_HDR10_ST2084_EXT && NetBridgeShareWantsFrame_nid_no_patch() != 0;
     return state->nextDumpScreenshot;
 }
 
@@ -3611,6 +3627,10 @@ bool VulkanDevice::present(std::uint32_t width, std::uint32_t height, bool opaqu
     const bool drawn = resident != nullptr && residentConvert && !DisplayHalfFloat(display->pixelFormat);
     require(passthrough == (state->surfaceColorSpace == VK_COLOR_SPACE_HDR10_ST2084_EXT) || clearOnly, "a presentation's dynamic range differs from its swapchain's");
     require(!passthrough || drawn || clearOnly || (state->hdrScaler != nullptr && !dumpFrame), "an HDR10 presentation through the scaler needs the HDR10 scaler and dumps on the CPU");
+    const bool shareFrame = state->nextDumpShare && !clearOnly;
+    state->nextDumpShare = false;
+    if (!clearOnly) ++state->flips;
+    dumpFrame = dumpFrame || shareFrame;
     auto* scaler = passthrough && !drawn ? state->hdrScaler.get() : state->scaler.get();
     const float whiteNits = PqToSdrWhiteNits(AgcDriver::CurrentHostHdr());
     // The scaler's source image, the color transfer's staging and the upload buffer are single
@@ -3759,7 +3779,7 @@ bool VulkanDevice::present(std::uint32_t width, std::uint32_t height, bool opaqu
             else scaler->RecordBlit(commands, barrier.image, state->extent.width, state->extent.height);
         }
         if (dumpFrame) {
-            const auto scale = state->nextDumpScreenshot ? 1 : DumpScale();
+            const auto scale = state->nextDumpScreenshot || shareFrame ? 1 : DumpScale();
             if (drawn || direct) {
                 const auto extent = PresentationPass::DumpExtent(width, height, scale);
                 slot.dumpWidth = extent.width;
@@ -3847,6 +3867,8 @@ bool VulkanDevice::present(std::uint32_t width, std::uint32_t height, bool opaqu
         // Only a submitted readback is written after the fence (a failed submit tears the device down).
         slot.dumpRecorded = dumpFrame;
         slot.dumpScreenshot = dumpFrame && state->nextDumpScreenshot;
+        slot.dumpShare = shareFrame;
+        slot.shareFlip = state->flips;
         slot.dumpIndex = state->nextDumpIndex;
         slot.recorderSerial = batchesAtBlit;
         slot.previousSerial = state->lastPresentSerial;

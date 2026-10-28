@@ -34,6 +34,13 @@ constexpr std::uint16_t KindPeer = 0x0303;
 constexpr std::uint16_t KindPeerInfo = 0x0304;
 constexpr std::uint16_t KindBind = 0x0305;
 constexpr std::uint16_t KindUnbind = 0x0306;
+constexpr std::uint16_t KindShareOpen = 0x0501;
+constexpr std::uint16_t KindShareOpened = 0x8501;
+constexpr std::uint16_t KindShareClose = 0x0502;
+constexpr std::uint16_t KindShareMode = 0x0503;
+constexpr std::uint16_t KindSharePad = 0x0504;
+constexpr std::uint16_t KindOverride = 0x0505;
+constexpr std::uint16_t KindShareStatus = 0x0506;
 
 using Pairs = std::vector<std::pair<std::string, std::string>>;
 

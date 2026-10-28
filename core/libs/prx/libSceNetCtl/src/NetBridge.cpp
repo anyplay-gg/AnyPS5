@@ -19,6 +19,7 @@
 
 #include "prx/libSceNetCtl/include/NetBridge.hpp"
 #include "prx/libc/include/general/LogMacros.hpp"
+#include "NetBridgeShare.hpp"
 #include "NetBridgeAuth.hpp"
 #include "NetBridgeWire.hpp"
 
@@ -659,6 +660,7 @@ private:
             resolve();
         }
         CloseSocket(target);
+        NetBridgeShare::Close();
         APS5_LOG_CHARS_OUT("disconnected from the net service");
         return true;
     }
@@ -668,6 +670,20 @@ private:
             if (header.kind == KindState) applyState(payload);
             else if (header.kind == KindPeer) applyPeer(payload);
             else if (header.kind == KindPushEvent) applyPushEvent(payload);
+            else if (header.kind == KindShareClose) NetBridgeShare::Close();
+            else if (header.kind == KindShareMode) NetBridgeShare::Mode(payload);
+            else if (header.kind == KindSharePad) NetBridgeShare::Pad(payload);
+            return;
+        }
+        if (header.kind == KindShareOpen) {
+            std::uint64_t connection = 0;
+            {
+                std::lock_guard lock(mutex);
+                connection = generation;
+            }
+            const std::uint8_t result = NetBridgeShare::Open(payload);
+            if (result == NetBridgeShare::OpenUnsupported) send(connection, EncodeFrame(KindUnsupported, header.request, {}));
+            else send(connection, EncodeFrame(KindShareOpened, header.request, std::vector<std::uint8_t>{result}));
             return;
         }
         if ((header.kind & ReplyBit) == 0) {
@@ -818,6 +834,7 @@ Bridge* Create() {
     Config config;
     if (!ReadConfig(config)) return nullptr;
     auto* bridge = new Bridge(std::move(config));
+    NetBridgeShare::Attach([bridge](std::uint16_t kind, const std::vector<std::uint8_t>& payload) { bridge->Event(kind, payload); });
     bridge->Start();
     return bridge;
 }

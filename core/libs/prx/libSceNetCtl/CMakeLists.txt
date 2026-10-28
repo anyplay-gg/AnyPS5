@@ -2,6 +2,7 @@ add_library(libSceNetCtl SHARED EXCLUDE_FROM_ALL
         Export.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/src/NetBridge.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/src/NetBridgeObserve.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/NetBridgeShare.cpp
 )
 target_include_directories(libSceNetCtl PRIVATE ${LIBS_INCLUDE_DIR})
 configure_windows_unwind(libSceNetCtl)
@@ -41,6 +42,19 @@ if(BUILD_TESTING)
     if(WIN32)
         target_link_libraries(net_bridge_tests PRIVATE ws2_32)
         set_tests_properties(net_bridge PROPERTIES ENVIRONMENT_MODIFICATION
+            "PATH=path_list_prepend:$<TARGET_FILE_DIR:libSceNetCtl>")
+    endif()
+
+
+    add_test_executable(net_bridge_share_tests ${CMAKE_CURRENT_SOURCE_DIR}/tests/NetBridgeShare.cpp)
+    target_include_directories(net_bridge_share_tests PRIVATE ${LIBS_INCLUDE_DIR})
+    target_link_libraries(net_bridge_share_tests PRIVATE libSceNetCtl libc)
+    configure_windows_unwind(net_bridge_share_tests)
+    add_test(NAME net_bridge_share COMMAND net_bridge_share_tests)
+    set_tests_properties(net_bridge_share PROPERTIES TIMEOUT 40)
+    if(WIN32)
+        target_link_libraries(net_bridge_share_tests PRIVATE ws2_32)
+        set_tests_properties(net_bridge_share PROPERTIES ENVIRONMENT_MODIFICATION
             "PATH=path_list_prepend:$<TARGET_FILE_DIR:libSceNetCtl>")
     endif()
 

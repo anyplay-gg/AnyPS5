@@ -110,6 +110,68 @@ void TestPayloadLengthLimit() {
     Require(!bBytes.Ok(), "Bytes exceeding MaxPayload fails");
 }
 
+void TestShareKindsMatchSpec() {
+    Require(KindShareOpen == 0x0501 && KindShareOpened == (KindShareOpen | ReplyBit), "share open and its reply");
+    Require(KindShareClose == 0x0502 && KindShareMode == 0x0503 && KindSharePad == 0x0504, "share close, mode and pad");
+    Require(KindOverride == 0x0505 && KindShareStatus == 0x0506, "override and status");
+
+    Builder pad;
+    pad.U8(1).U16(0x0102).U32(0x00004011).U8(1).U8(2).U8(3).U8(4).U8(5).U8(6);
+    const Bytes expected = {
+        0x0D, 0x00, 0x00, 0x00,
+        0x04, 0x05,
+        0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00,
+        0x01,
+        0x02, 0x01,
+        0x11, 0x40, 0x00, 0x00,
+        0x01, 0x02, 0x03, 0x04, 0x05, 0x06
+    };
+    Require(EncodeFrame(KindSharePad, 0, pad.Take()) == expected, "share pad frame matches the spec byte for byte");
+
+    Builder open;
+    open.Str("r1").U32(4096).U32(1920).U32(1080).U32(60).U8(2);
+    const Bytes expectedOpen = {
+        0x02, 0x00, 'r', '1',
+        0x00, 0x10, 0x00, 0x00,
+        0x80, 0x07, 0x00, 0x00,
+        0x38, 0x04, 0x00, 0x00,
+        0x3C, 0x00, 0x00, 0x00,
+        0x02
+    };
+    Require(open.Take() == expectedOpen, "share open payload matches the spec byte for byte");
+
+    // The bridge-to-service direction: written out, not built with the code under test.
+    const Bytes expectedOpened = {
+        0x01, 0x00, 0x00, 0x00,
+        0x01, 0x85,
+        0x00, 0x00,
+        0x07, 0x00, 0x00, 0x00,
+        0x02
+    };
+    Require(EncodeFrame(KindShareOpened, 7, Bytes{2}) == expectedOpened, "share opened frame matches the spec byte for byte");
+    const Bytes expectedOverride = {
+        0x01, 0x00, 0x00, 0x00,
+        0x05, 0x05,
+        0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00,
+        0x01
+    };
+    Require(EncodeFrame(KindOverride, 0, Bytes{1}) == expectedOverride, "override frame matches the spec byte for byte");
+    Builder status;
+    status.U32(0x0102).U32(3).U32(4);
+    const Bytes expectedStatus = {
+        0x0C, 0x00, 0x00, 0x00,
+        0x06, 0x05,
+        0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00,
+        0x02, 0x01, 0x00, 0x00,
+        0x03, 0x00, 0x00, 0x00,
+        0x04, 0x00, 0x00, 0x00
+    };
+    Require(EncodeFrame(KindShareStatus, 0, status.Take()) == expectedStatus, "share status frame matches the spec byte for byte");
+}
+
 void TestRealBridgeWireVectors() {
     const Bytes token = {0x73, 0x65, 0x63, 0x72, 0x65, 0x74, 0x01, 0xFE};
     Service service(token);
@@ -283,8 +345,9 @@ int main() {
     TestTrailingFieldsIgnored();
     TestPayloadLengthLimit();
 
+    TestShareKindsMatchSpec();
     TestRealBridgeWireVectors();
 
-    std::puts("bridge protocol frame tests: ok (19 frame kinds verified against spec and real bridge)");
+    std::puts("bridge protocol frame tests: ok (frame kinds verified against spec and real bridge, share play included)");
     return 0;
 }

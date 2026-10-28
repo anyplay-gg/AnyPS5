@@ -2,6 +2,7 @@
 #include "prx/libScePad/include/PadAudioHapticQueue.hpp"
 #include "prx/libScePad/include/Pad.hpp"
 #include "prx/libScePad/include/InputCommandFile.hpp"
+#include "prx/libScePad/include/SharePadMapping.hpp"
 #include "prx/libkernel/Time/include/Time.hpp"
 #include <algorithm>
 #include <chrono>
@@ -59,6 +60,35 @@ namespace {
     std::exception_ptr failure;
     bool initialized = false;
     constexpr float kAngularVelocityDeadband = 0.017453292f;
+
+    struct ShareView {
+        bool active = false;
+        int port = -1;
+        PadInputState state;
+        std::uint64_t stamp = 0;
+    };
+    ShareView shareNow;
+    std::uint64_t shareSerialSeen = 0;
+
+    void RefreshShare(std::uint64_t now) {
+        NetBridgeSharePadView view{};
+        if (NetBridgeSharePad_nid_no_patch(&view) == 0) {
+            shareNow.active = false;
+            shareNow.port = -1;
+            return;
+        }
+        shareNow.active = true;
+        shareNow.port = Pad::Share::PortOf(view.mode);
+        shareNow.state = Pad::Share::ToInputState(view);
+        if (view.serial != shareSerialSeen) {
+            shareSerialSeen = view.serial;
+            shareNow.stamp = now;
+        }
+    }
+
+    bool ShareDrives(int port) {
+        return shareNow.active && shareNow.port == port;
+    }
 
     bool RefreshAudioHaptics(PadSlot& slot) {
         if (std::chrono::steady_clock::now() >= slot.audioHapticEnd) slot.audioHapticRumble = {};
@@ -203,10 +233,10 @@ PadData BuildData(PadSlot& slot, const PadInputState& state, std::uint64_t chang
     data.angular_velocity_z = gyro[2];
 
     std::uint8_t connectedCount = 0;
-    for (const auto& s : slots) {
-        if (s.connected) ++connectedCount;
+    for (int index = 0; index < PAD_MAX_CONTROLLERS; ++index) {
+        if (slots[static_cast<std::size_t>(index)].connected || ShareDrives(index)) ++connectedCount;
     }
-    data.connected = slot.connected;
+    data.connected = slot.connected || ShareDrives(port);
     data.connected_count = connectedCount > 0 ? connectedCount : 1;
     data.timestamp = changeTime;
 
@@ -265,6 +295,12 @@ PadData Pad::ReadState(int port) {
     if (failure) std::rethrow_exception(failure);
     if (!initialized) throw std::runtime_error("Pad: read before initialization");
     const std::uint64_t now = sceKernelGetProcessTime();
+    RefreshShare(now);
+    if (ShareDrives(port)) {
+        auto& shared = slots[port];
+        shared.pressedSinceRead = 0;
+        return BuildData(shared, shareNow.state, shareNow.stamp, now, Pad::InputCommandFile::Input{}, port);
+    }
     const auto injected = port == 0 ? InjectedInput(now) : Pad::InputCommandFile::Input{};
     auto& slot = slots[port];
     PadData data = BuildData(slot, slot.state, slot.timestamp, now, injected, port);
@@ -288,6 +324,12 @@ int Pad::Read(PadData* data, int num, int port) {
     auto& slot = slots[port];
     slot.pressedSinceRead = 0;
     const std::uint64_t now = sceKernelGetProcessTime();
+    RefreshShare(now);
+    if (ShareDrives(port)) {
+        slot.queue.clear();
+        data[0] = BuildData(slot, shareNow.state, shareNow.stamp, now, Pad::InputCommandFile::Input{}, port);
+        return 1;
+    }
     const auto injected = port == 0 ? InjectedInput(now) : Pad::InputCommandFile::Input{};
     if (slot.queue.empty()) {
         data[0] = BuildData(slot, slot.state, slot.timestamp, now, injected, port);
@@ -462,7 +504,8 @@ void Pad::SetConnected(int port, bool connected) {
 bool Pad::IsConnected(int port) {
     if (port < 0 || port >= PAD_MAX_CONTROLLERS) return false;
     std::lock_guard lock(stateMutex);
-    return slots[port].connected;
+    RefreshShare(sceKernelGetProcessTime());
+    return slots[port].connected || ShareDrives(port);
 }
 
 extern "C" void PadPublishInputForPort_nid_postfix(int port, const PadInputState& input) {
