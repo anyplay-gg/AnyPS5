@@ -15,6 +15,7 @@ static constexpr int SCE_NP_ERROR_SIGNED_OUT = static_cast<int>(0x80550006);
 static constexpr int ORBIS_NP_AUTH_ERROR_ABORTED = static_cast<int>(0x80550304);
 static constexpr int ORBIS_NP_AUTH_ERROR_REQUEST_NOT_FOUND = static_cast<int>(0x80550306);
 static constexpr int ORBIS_NP_AUTH_ERROR_INVALID_ID = static_cast<int>(0x80550307);
+static constexpr int ORBIS_NP_AUTH_ERROR_CODE_SERVICE_UNAVAILABLE = ORBIS_NP_AUTH_ERROR_ABORTED;
 static constexpr int NP_POLL_ASYNC_FINISHED = 0;
 static constexpr int NP_POLL_ASYNC_RUNNING = 1;
 
@@ -33,6 +34,15 @@ struct RequestInfo {
 std::mutex g_requestMutex;
 std::unordered_map<int, RequestInfo> g_requests;
 std::atomic<int> g_nextRequest{1};
+
+int CodeOrTokenAnswer() {
+ if (NetBridgeEnabled_nid_no_patch() != 0) {
+  NetBridgeStateView view{};
+  NetBridgeState_nid_no_patch(&view);
+  if (view.signedIn != 0) return ORBIS_NP_AUTH_ERROR_CODE_SERVICE_UNAVAILABLE;
+ }
+ return SCE_NP_ERROR_SIGNED_OUT;
+}
 
 int CreateRequest(bool isAsync) {
  const int reqId = g_nextRequest.fetch_add(1, std::memory_order_relaxed);
@@ -85,10 +95,10 @@ int APS5_VABI sceNpAuthGetAuthorizedAppCode(std::int32_t requestId, const NpAuth
  if (it->second.aborted) return netCall.Ret(ORBIS_NP_AUTH_ERROR_ABORTED);
  it->second.processed = true;
  if (it->second.isAsync) {
-  it->second.result = SCE_NP_ERROR_SIGNED_OUT;
+  it->second.result = CodeOrTokenAnswer();
   return netCall.Ret(0);
  }
- return netCall.Ret(SCE_NP_ERROR_SIGNED_OUT);
+ return netCall.Ret(CodeOrTokenAnswer());
 }
 
 int APS5_VABI sceNpAuthGetAuthorizationCodeV3(int req_id, const void* param, void* auth_code, int* issuer_id) {
@@ -104,10 +114,10 @@ int APS5_VABI sceNpAuthGetAuthorizationCodeV3(int req_id, const void* param, voi
  }
  it->second.processed = true;
  if (it->second.isAsync) {
-  it->second.result = SCE_NP_ERROR_SIGNED_OUT;
+  it->second.result = CodeOrTokenAnswer();
   return netCall.Ret(0);
  }
- return netCall.Ret(SCE_NP_ERROR_SIGNED_OUT);
+ return netCall.Ret(CodeOrTokenAnswer());
 }
 
 int APS5_VABI sceNpAuthGetIdTokenV3(int req_id, const void* param, void* id_token) {
@@ -122,10 +132,10 @@ int APS5_VABI sceNpAuthGetIdTokenV3(int req_id, const void* param, void* id_toke
  }
  it->second.processed = true;
  if (it->second.isAsync) {
-  it->second.result = SCE_NP_ERROR_SIGNED_OUT;
+  it->second.result = CodeOrTokenAnswer();
   return netCall.Ret(0);
  }
- return netCall.Ret(SCE_NP_ERROR_SIGNED_OUT);
+ return netCall.Ret(CodeOrTokenAnswer());
 }
 
 int APS5_VABI sceNpAuthGetAuthorizationCode(int req_id, const void* param, void* auth_code) {
