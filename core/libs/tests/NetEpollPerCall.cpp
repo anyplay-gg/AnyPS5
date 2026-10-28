@@ -1,5 +1,3 @@
-// A managed runtime (Mono behind Socket.Poll) answers every poll with a throwaway epoll:
-// create, add, wait with a zero timeout, delete, destroy. These checks drive that pattern.
 #include "../prx/libSceNet/Export.cpp"
 #include <filesystem>
 #include <fstream>
@@ -15,7 +13,6 @@ static void Require(bool value, const std::source_location location = std::sourc
 static constexpr std::uint32_t In = 1, Out = 2, Err = 8, Hup = 16;
 static constexpr int NonBlockingOption = 0x1200;
 
-// One Socket.Poll(0, mode): returns the events the wait reported, or -1 for none.
 static std::int64_t PollOnce(int descriptor, std::uint32_t mask) {
     const int epoll = sceNetEpollCreate("per-call", 0);
     Require(epoll >= 0);
@@ -60,7 +57,6 @@ static void CheckUdp() {
     Require(sender >= 0 && receiver >= 0);
     SetNonBlocking(sender);
     const auto address = LoopbackAddress(receiver);
-    // A fresh epoll must report a writable datagram socket at once, every time, and nothing readable.
     for (int round = 0; round != 2000; ++round) {
         Require(PollOnce(sender, Out) == Out);
         Require(PollOnce(sender, In | Out) == Out);
@@ -69,7 +65,7 @@ static void CheckUdp() {
     const char payload[] = "per-call";
     Require(sceNetSendto(sender, payload, sizeof(payload), 0, address.data(), address.size()) == sizeof(payload));
     Require(PollUntil(receiver, In, std::chrono::seconds(5)) == In);
-    Require(PollOnce(receiver, In) == In);  // level triggered: still readable until read
+    Require(PollOnce(receiver, In) == In);
     Require(PollOnce(receiver, Out) == Out);
     Require(sceNetSocketClose(sender) == 0 && sceNetSocketClose(receiver) == 0);
 }
@@ -84,7 +80,6 @@ static void CheckTcpConnect() {
     SetNonBlocking(client);
     const int result = sceNetConnect(client, address.data(), address.size());
     Require(result == 0 || (result == static_cast<int>(0x80410124) && *sceNetErrnoLoc() == 36));
-    // Mid-connect (or just connected): writable is the connect-complete signal and must arrive.
     const auto writable = PollUntil(client, Out, std::chrono::seconds(5));
     Require(writable > 0 && (writable & Out) && !(writable & Err));
     int error = -1;
@@ -96,7 +91,6 @@ static void CheckTcpConnect() {
     const char byte = 'x';
     Require(sceNetSend(accepted, &byte, 1, 0) == 1);
     Require(PollUntil(client, In, std::chrono::seconds(5)) == In);
-    // The peer going away is reported as readable or hang-up, never as silence.
     char received = 0;
     Require(sceNetRecv(client, &received, 1, 0) == 1);
     Require(sceNetSocketClose(accepted) == 0);
@@ -109,13 +103,12 @@ static void CheckTcpRefused() {
     const int probe = sceNetSocket("per-call-closed", 2, 1, 6);
     Require(probe >= 0);
     const auto address = LoopbackAddress(probe);
-    Require(sceNetSocketClose(probe) == 0);  // nothing listens on this port any more
+    Require(sceNetSocketClose(probe) == 0);
     const int client = sceNetSocket("per-call-closed", 2, 1, 6);
     Require(client >= 0);
     SetNonBlocking(client);
     const int result = sceNetConnect(client, address.data(), address.size());
     if (result != 0) {
-        // A failed connect must wake a poll that asks for writable or for errors.
         const auto seen = PollUntil(client, Out | Err, std::chrono::seconds(10));
         Require(seen > 0 && (seen & (Err | Hup | Out)));
     }
@@ -131,7 +124,6 @@ static void CheckClosedDescriptor() {
     Require(sceNetEpollControl(epoll, 1, socket, &request) == 0);
     Require(sceNetSocketClose(socket) == 0);
     NetEpollEvent ready{};
-    // The closed descriptor leaves the epoll: no event, and no later control succeeds on it.
     Require(sceNetEpollWait(epoll, &ready, 1, 0) == 0);
     for (const int operation : {1, 2, 3}) {
         Require(sceNetEpollControl(epoll, operation, socket, operation == 3 ? nullptr : &request) == static_cast<int>(0x80410109));
@@ -141,8 +133,6 @@ static void CheckClosedDescriptor() {
     Require(sceNetEpollDestroy(epoll) == static_cast<int>(0x80410109));
 }
 
-// Seven threads that never sleep must all finish, and they are paced instead of spinning at
-// full speed (the pacing starts after a few hundred hot empty polls from one thread).
 static void CheckSpinningThreads() {
     std::array<int, 7> sockets{};
     for (int& socket : sockets) {
@@ -165,7 +155,6 @@ static void CheckSpinningThreads() {
     for (const int socket : sockets) Require(sceNetSocketClose(socket) == 0);
 }
 
-// The observation log must show what the game asks an epoll for and what the wait reported.
 static void CheckObservation(const std::filesystem::path& path) {
     const int socket = sceNetSocket("per-call-observe", 2, 2, 17);
     Require(socket >= 0);

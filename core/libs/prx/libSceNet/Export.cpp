@@ -2391,10 +2391,6 @@ int APS5_VABI sceNetGetSockInfo6(std::int32_t s, NetSockInfo6* info, std::uint32
     return netCall.Ret(written);
 }
 
-// A guest that polls with a zero timeout in a loop that never sleeps (a throwaway epoll per
-// Socket.Poll call in a managed runtime does this) would otherwise burn every core and starve the
-// threads that make progress. Hot repeated empty polls from one thread are first yielded and then
-// paced by about a millisecond; a ready event or a pause in the loop starts the count again.
 static void pace_empty_poll(bool ready) {
     constexpr auto HotGap = std::chrono::microseconds(500);
     constexpr unsigned YieldAfter = 32;
