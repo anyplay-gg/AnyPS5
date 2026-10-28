@@ -10,7 +10,9 @@
 #include "prx/libSceNetCtl/include/NetBridge.hpp"
 #include "prx/libc/include/ApplicationHeap.hpp"
 #include "prx/libc/include/General.hpp"
+#include "prx/libkernel/File/include/File.hpp"
 #include "prx/libkernel/Socket/include/SocketPoll.hpp"
+#include "prx/libkernel/include/Api.hpp"
 
 #include <mbedtls/asn1.h>
 #include <mbedtls/base64.h>
@@ -28,6 +30,7 @@
 #include <mbedtls/x509_crt.h>
 
 #include <algorithm>
+#include <array>
 #include <climits>
 #include <cstdlib>
 #include <cstring>
@@ -186,6 +189,40 @@ struct CertificateChain {
     ~CertificateChain() { mbedtls_x509_crt_free(&root); }
 };
 
+Pool hostRootPool{std::numeric_limits<std::size_t>::max() / 2};
+
+std::string ReadHostRootList(const std::string& path) {
+    const int file = sceKernelOpen(path.c_str(), 0, 0);
+    if (file < 0) return {};
+    std::string text;
+    std::array<char, 16384> buffer{};
+    std::int64_t count = 0;
+    while ((count = sceKernelRead(file, buffer.data(), buffer.size())) > 0) text.append(buffer.data(), static_cast<std::size_t>(count));
+    sceKernelClose(file);
+    if (count < 0) throw std::runtime_error("SSL: reading the host CA list " + path + " failed");
+    return text;
+}
+
+const mbedtls_x509_crt* HostRoots() {
+    static std::mutex mutex;
+    static std::unique_ptr<CertificateChain> roots;
+    static bool loaded = false;
+    std::lock_guard lock(mutex);
+    if (loaded) return roots ? &roots->root : nullptr;
+    const char* const word = sceKernelGetFsSandboxRandomWord();
+    if (!word) throw std::runtime_error("SSL: the sandbox word for the host CA list is not available");
+    const auto text = ReadHostRootList(std::string("/") + word + "/common/cert/CA_LIST.cer");
+    auto chain = std::make_unique<CertificateChain>();
+    if (!text.empty()) {
+        PoolScope scope(hostRootPool);
+        mbedtls_x509_crt_parse(&chain->root, reinterpret_cast<const unsigned char*>(text.c_str()), text.size() + 1);
+        if (currentPoolExhausted) throw std::bad_alloc();
+    }
+    if (chain->root.raw.p) roots = std::move(chain);
+    loaded = true;
+    return roots ? &roots->root : nullptr;
+}
+
 struct PrivateKey {
     mbedtls_pk_context key;
     PrivateKey() { mbedtls_pk_init(&key); }
@@ -318,6 +355,7 @@ struct Session {
     Random random;
     PrivateKey privateKey;
     mbedtls_x509_crt authorities;
+    mbedtls_x509_crt* hostRootLink = nullptr;
     mbedtls_ssl_config config;
     mbedtls_ssl_context ssl;
 
@@ -332,20 +370,28 @@ struct Session {
         PoolScope scope(context->pool);
         mbedtls_ssl_free(&ssl);
         mbedtls_ssl_config_free(&config);
+        if (hostRootLink) hostRootLink->next = nullptr;
         mbedtls_x509_crt_free(&authorities);
     }
 
-    void Configure(const std::string& host, const std::string& alpn, std::uint32_t options) {
+    void Configure(const std::string& host, const std::string& alpn, std::uint32_t options, const mbedtls_x509_crt* hostRoots = nullptr) {
         verifyOptions = options;
         random.Seed();
         for (const auto& chain : context->authorities)
             for (const auto* entry = &chain->root; entry; entry = entry->next)
                 CheckBackend(mbedtls_x509_crt_parse_der(&authorities, entry->raw.p, entry->raw.len), "SSL CA certificate copy failed");
+        auto* trusted = &authorities;
+        if (hostRoots && !authorities.raw.p) {
+            trusted = const_cast<mbedtls_x509_crt*>(hostRoots);
+        } else if (hostRoots) {
+            for (hostRootLink = &authorities; hostRootLink->next; hostRootLink = hostRootLink->next) {}
+            hostRootLink->next = const_cast<mbedtls_x509_crt*>(hostRoots);
+        }
         CheckBackend(mbedtls_ssl_config_defaults(&config, MBEDTLS_SSL_IS_CLIENT, MBEDTLS_SSL_TRANSPORT_STREAM, MBEDTLS_SSL_PRESET_DEFAULT),
             "SSL client configuration failed");
         mbedtls_ssl_conf_authmode(&config, MBEDTLS_SSL_VERIFY_OPTIONAL);
         mbedtls_ssl_conf_min_tls_version(&config, MBEDTLS_SSL_VERSION_TLS1_2);
-        mbedtls_ssl_conf_ca_chain(&config, &authorities, nullptr);
+        mbedtls_ssl_conf_ca_chain(&config, trusted, nullptr);
         mbedtls_ssl_conf_rng(&config, mbedtls_ctr_drbg_random, &random.drbg);
         if (identity) {
             if (!identity->chain || !identity->key) throw std::logic_error("Incomplete SSL client identity is not supported");
@@ -481,6 +527,7 @@ struct SslConnection {
     int minimumVersion = SslVersionTls12;
     std::string alpn;
     std::shared_ptr<Session> session;
+    const mbedtls_x509_crt* hostRoots = nullptr;
 };
 
 struct Runtime {
@@ -895,7 +942,7 @@ int Establish(const char* function, int sslConnectionId, std::shared_ptr<Session
             if (!KernelLookupSocketNative_nid_no_patch(connection->socket, &owner, &native)) return ErrorNetBadDescriptor;
             PoolScope scope(context->pool);
             session = std::make_shared<Session>(connection->context, std::move(context), std::move(owner), native);
-            session->Configure(connection->host, connection->alpn, connection->verifyOptions);
+            session->Configure(connection->host, connection->alpn, connection->verifyOptions, connection->hostRoots);
             connection->session = session;
         } else {
             session = connection->session;
@@ -1015,6 +1062,17 @@ int APS5_VABI sceSslRead(int sslConnectionId, void* buf, size_t len, int flags) 
 
 int SslRead_nid_no_patch(int sslConnectionId, void* buffer, std::size_t length, int flags) {
     return sceSslRead(sslConnectionId, buffer, length, flags);
+}
+
+int SslTrustHostRoots_nid_no_patch(int sslConnectionId) {
+    auto& state = State();
+    const auto* roots = HostRoots();
+    std::lock_guard lock(state.mutex);
+    auto* connection = FindConnection(sslConnectionId);
+    if (!connection) return ErrorInvalidId;
+    if (connection->session) throw std::logic_error("SslTrustHostRoots_nid_no_patch: the connection has already started");
+    connection->hostRoots = roots;
+    return 0;
 }
 
 int APS5_VABI sceSslWrite(int sslConnectionId, void* buf, size_t len, int flags) {
