@@ -9,39 +9,57 @@
 extern "C" {
 
 int APS5_VABI sceNpUniversalDataSystemIntCloseStream() {
+    NetBridgeCall netCall("libSceNpUniversalDataSystem", __func__);
     NotImplemented_nid_no_patch(__func__);
+    return netCall.Ret(0);
 }
 
 int APS5_VABI sceNpUniversalDataSystemIntDeleteUserData() {
+    NetBridgeCall netCall("libSceNpUniversalDataSystem", __func__);
     NotImplemented_nid_no_patch(__func__);
+    return netCall.Ret(0);
 }
 
 int APS5_VABI sceNpUniversalDataSystemIntGetNpCommIdByNpTitleId() {
+    NetBridgeCall netCall("libSceNpUniversalDataSystem", __func__);
     NotImplemented_nid_no_patch(__func__);
+    return netCall.Ret(0);
 }
 
 int APS5_VABI sceNpUniversalDataSystemIntGetNpTitleIdListByNpCommId() {
+    NetBridgeCall netCall("libSceNpUniversalDataSystem", __func__);
     NotImplemented_nid_no_patch(__func__);
+    return netCall.Ret(0);
 }
 
 int APS5_VABI sceNpUniversalDataSystemIntGetObjectState() {
+    NetBridgeCall netCall("libSceNpUniversalDataSystem", __func__);
     NotImplemented_nid_no_patch(__func__);
+    return netCall.Ret(0);
 }
 
 int APS5_VABI sceNpUniversalDataSystemIntOpenObjectsDefinitionConfStream() {
+    NetBridgeCall netCall("libSceNpUniversalDataSystem", __func__);
     NotImplemented_nid_no_patch(__func__);
+    return netCall.Ret(0);
 }
 
 int APS5_VABI sceNpUniversalDataSystemIntOpenObjectsDefinitionConfStreamByObjectId() {
+    NetBridgeCall netCall("libSceNpUniversalDataSystem", __func__);
     NotImplemented_nid_no_patch(__func__);
+    return netCall.Ret(0);
 }
 
 int APS5_VABI sceNpUniversalDataSystemIntOpenStreamByUri() {
+    NetBridgeCall netCall("libSceNpUniversalDataSystem", __func__);
     NotImplemented_nid_no_patch(__func__);
+    return netCall.Ret(0);
 }
 
 int APS5_VABI sceNpUniversalDataSystemIntReadStream() {
+    NetBridgeCall netCall("libSceNpUniversalDataSystem", __func__);
     NotImplemented_nid_no_patch(__func__);
+    return netCall.Ret(0);
 }
 
 

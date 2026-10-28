@@ -104,11 +104,7 @@ if(BUILD_TESTING)
     add_test(NAME guest_ssl_ps5_readers COMMAND guest_ssl_ps5_readers_tests)
     add_test_executable(guest_ssl_context_lifetime_tests ${LIBS_INCLUDE_DIR}/tests/SslContextLifetime.cpp)
     target_include_directories(guest_ssl_context_lifetime_tests PRIVATE ${LIBS_INCLUDE_DIR})
-<<<<<<< HEAD
-    target_link_libraries(guest_ssl_context_lifetime_tests PRIVATE libc libSceNetCtl mbedtls mbedx509 mbedcrypto)
-=======
-    target_link_libraries(guest_ssl_context_lifetime_tests PRIVATE libkernel libc mbedtls mbedx509 mbedcrypto)
->>>>>>> upstream/main
+    target_link_libraries(guest_ssl_context_lifetime_tests PRIVATE libkernel libc libSceNetCtl mbedtls mbedx509 mbedcrypto)
     configure_windows_unwind(guest_ssl_context_lifetime_tests)
     add_test(NAME guest_ssl_context_lifetime COMMAND guest_ssl_context_lifetime_tests)
     set_tests_properties(guest_ssl_context_lifetime PROPERTIES TIMEOUT 30)

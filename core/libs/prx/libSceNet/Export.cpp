@@ -1079,16 +1079,6 @@ int* APS5_VABI sceNetErrnoLoc(void) {
     return netCall.Ret(errno_slot());
 }
 
-<<<<<<< HEAD
-int APS5_VABI sceNetShowNetstat(void) {
-    NetBridgeCall netCall("libSceNet", __func__);
-    std::lock_guard lock(g_mutex);
-    if (!g_net_inited) return netCall.Ret(fail(NET_ENOTINIT));
-    throw std::runtime_error(__func__);
-}
-
-=======
->>>>>>> upstream/main
 int PollSockets(KernelSocketPoll::Entry* entries, int count, int timeoutMilliseconds) {
     std::vector<std::shared_ptr<NativeSocketHandle>> natives(static_cast<std::size_t>(count));
     {
@@ -1258,11 +1248,8 @@ int APS5_VABI sceNetPoolDestroy(int memid) {
 }
 
 int APS5_VABI sceNetSocket(const char* name, int family, int type, int protocol) {
-<<<<<<< HEAD
     NetBridgeCall netCall("libSceNet", __func__, [&](NetBridgeJson& netIn) { netIn.Int("family", family); netIn.Int("type", type); netIn.Int("protocol", protocol); });
     (void)name;
-=======
->>>>>>> upstream/main
     if (family != NET_AF_INET && family != NET_AF_INET6) {
         return netCall.Ret(fail(NET_EAFNOSUPPORT));
     }
@@ -1272,16 +1259,12 @@ int APS5_VABI sceNetSocket(const char* name, int family, int type, int protocol)
     }
     if (!initialize_sockets()) return netCall.Ret(fail(5));
     const NativeSocket native = ::socket(family == NET_AF_INET ? AF_INET : AF_INET6, type, protocol);
-<<<<<<< HEAD
-    if (native == INVALID_NATIVE_SOCKET) return netCall.Ret(fail(native_error()));
-=======
     if (native == INVALID_NATIVE_SOCKET) {
 #ifdef __APPLE__
-        if (errno == EPROTOTYPE) return fail(NET_EPROTONOSUPPORT);
+        if (errno == EPROTOTYPE) return netCall.Ret(fail(NET_EPROTONOSUPPORT));
 #endif // __APPLE__
-        return fail(native_error());
+        return netCall.Ret(fail(native_error()));
     }
->>>>>>> upstream/main
 #ifdef _WIN32
     u_long nonblocking = 1;
     if (ioctlsocket(native, FIONBIO, &nonblocking) != 0) {
@@ -2438,11 +2421,12 @@ static std::string endpoint_text(const sockaddr_storage& address) {
 }
 
 int APS5_VABI sceNetShowNetstat(void) {
+    NetBridgeCall netCall("libSceNet", __func__);
     std::vector<std::pair<int, Sock>> sockets;
     std::vector<std::pair<int, std::string>> epolls;
     {
         std::lock_guard lock(g_mutex);
-        if (!g_net_inited) return fail(NET_ENOTINIT);
+        if (!g_net_inited) return netCall.Ret(fail(NET_ENOTINIT));
         sockets.assign(g_socks.begin(), g_socks.end());
         epolls.assign(g_epoll_names.begin(), g_epoll_names.end());
     }
@@ -2476,7 +2460,7 @@ int APS5_VABI sceNetShowNetstat(void) {
     for (auto it = epolls.rbegin(); it != epolls.rend(); ++it)
         std::printf("ID: %4d (epoll)        *....-. OPENED pid=0x%08x %s\n", it->first, static_cast<unsigned>(pid), it->second.c_str());
     std::fflush(stdout);
-    return 0;
+    return netCall.Ret(0);
 }
 
 int APS5_VABI sceNetShowNetstatWithMemory(int memid) {
@@ -3017,15 +3001,10 @@ int APS5_VABI sceNetResolverAbort(int rid, int flags) {
 }
 
 int APS5_VABI sceNetShowIfconfig() {
-<<<<<<< HEAD
     NetBridgeCall netCall("libSceNet", __func__);
-    std::lock_guard lock(g_mutex);
-    if (!g_net_inited) return netCall.Ret(fail(NET_ENOTINIT));
-    throw std::runtime_error(__func__);
-=======
     {
         std::lock_guard lock(g_mutex);
-        if (!g_net_inited) return fail(NET_ENOTINIT);
+        if (!g_net_inited) return netCall.Ret(fail(NET_ENOTINIT));
     }
     const auto dotted = [](std::uint32_t address) {
         char text[INET_ADDRSTRLEN] = {};
@@ -3054,8 +3033,7 @@ int APS5_VABI sceNetShowIfconfig() {
     std::printf("   %s, %s\n", dotted(servers[0]).c_str(), dotted(servers[1]).c_str());
     std::printf("   ::, ::\n");
     std::fflush(stdout);
-    return 0;
->>>>>>> upstream/main
+    return netCall.Ret(0);
 }
 
 extern const std::uint8_t in6addr_any_nid_postfix[16] = {};

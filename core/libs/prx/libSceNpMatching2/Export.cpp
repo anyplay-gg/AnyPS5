@@ -246,17 +246,11 @@ int APS5_VABI sceNpMatching2Terminate(void) {
     return netCall.Ret(0);
 }
 
-<<<<<<< HEAD
-int APS5_VABI sceNpMatching2AbortContextStart(void) {
-    NetBridgeCall netCall("libSceNpMatching2", __func__);
-    NotImplemented_nid_no_patch(__func__);
-    return netCall.Ret(0);
-=======
 int APS5_VABI sceNpMatching2AbortContextStart(std::uint16_t ctxId) {
+    NetBridgeCall netCall("libSceNpMatching2", __func__);
     (void)ctxId;
     std::lock_guard lock(matching2Mutex);
-    return matching2Initialized ? 0 : SCE_NP_MATCHING2_ERROR_NOT_INITIALIZED;
->>>>>>> upstream/main
+    return netCall.Ret(matching2Initialized ? 0 : SCE_NP_MATCHING2_ERROR_NOT_INITIALIZED);
 }
 
 int APS5_VABI sceNpMatching2CreateContextA(void) {
@@ -451,24 +445,18 @@ int APS5_VABI sceNpMatching2SignalingGetConnectionInfoA(void) {
     return netCall.Ret(0);
 }
 
-<<<<<<< HEAD
-int APS5_VABI sceNpMatching2SignalingGetConnectionStatus(void) {
-    NetBridgeCall netCall("libSceNpMatching2", __func__);
-    NotImplemented_nid_no_patch(__func__);
-    return netCall.Ret(0);
-=======
 int APS5_VABI sceNpMatching2SignalingGetConnectionStatus(std::uint16_t ctxId, std::uint64_t roomId, std::uint16_t memberId, std::int32_t* connStatus, void* peerAddr, std::uint16_t* peerPort) {
+    NetBridgeCall netCall("libSceNpMatching2", __func__);
     (void)roomId;
     (void)memberId;
     (void)peerAddr;
     (void)peerPort;
     std::lock_guard lock(matching2Mutex);
-    if (!matching2Initialized) return SCE_NP_MATCHING2_ERROR_NOT_INITIALIZED;
+    if (!matching2Initialized) return netCall.Ret(SCE_NP_MATCHING2_ERROR_NOT_INITIALIZED);
     if (!connStatus) NotImplemented_nid_no_patch(__func__);
-    if (const int error = CheckContext(ctxId)) return error;
+    if (const int error = CheckContext(ctxId)) return netCall.Ret(error);
     *connStatus = SCE_NP_SIGNALING_CONN_STATUS_INACTIVE;
-    return 0;
->>>>>>> upstream/main
+    return netCall.Ret(0);
 }
 
 int APS5_VABI sceNpMatching2SignalingGetLocalNetInfo(void) {
