@@ -1,5 +1,6 @@
 #include "prx/libSceAgcDriver/Graphics/include/PipelineLibrary.hpp"
 #include "prx/libSceAgcDriver/Graphics/include/PipelineJournal.hpp"
+#include "prx/libSceAgcDriver/Graphics/include/PipelineWatch.hpp"
 #include "prx/libSceAgcDriver/Execution/include/PerformanceTimer.hpp"
 #include <array>
 #include <atomic>
@@ -231,8 +232,9 @@ VkPipeline LinkPipelineFromLibraries(const Context& context, const VkGraphicsPip
         lock.unlock();
         VkResult created;
         {
+            const PipelineWatch::Scope watch("graphics library part");
             auto pipelineCacheLock = context.LockPipelineCacheForUse();
-            created = context.Function<PFN_vkCreateGraphicsPipelines>("vkCreateGraphicsPipelines")(context.device, context.pipelineCache, 1, &create, nullptr, &handle);
+            created =context.Function<PFN_vkCreateGraphicsPipelines>("vkCreateGraphicsPipelines")(context.device, context.pipelineCache, 1, &create, nullptr, &handle);
         }
         lock.lock();
         Check(created, "vkCreateGraphicsPipelines library");
@@ -278,6 +280,7 @@ VkPipeline LinkPipelineFromLibraries(const Context& context, const VkGraphicsPip
     VkPipeline pipeline = VK_NULL_HANDLE;
     lock.unlock();
     {
+        const PipelineWatch::Scope watch("graphics library link");
         auto pipelineCacheLock = context.LockPipelineCacheForUse();
         Check(context.Function<PFN_vkCreateGraphicsPipelines>("vkCreateGraphicsPipelines")(context.device, context.pipelineCache, 1, &create, nullptr, &pipeline), "vkCreateGraphicsPipelines link");
     }
@@ -307,6 +310,7 @@ VkPipeline LinkPipelineFromLibraries(const Context& context, const VkGraphicsPip
             create.layout = libraryLayout;
             VkPipeline result = VK_NULL_HANDLE;
             const auto pipelineCreationResult = [&] {
+                const PipelineWatch::Scope watch("graphics library optimize");
                 auto pipelineCacheLock = cacheSynchronization != nullptr ? cacheSynchronization->LockForPipelineUse() : PipelineCacheSynchronization::PipelineUseLock{};
                 return createPipelines(slot->device, cache, 1, &create, nullptr, &result);
             }();

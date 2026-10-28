@@ -1,4 +1,5 @@
 #include "prx/libSceAgcDriver/Graphics/include/PipelineCache.hpp"
+#include "prx/libSceAgcDriver/Graphics/include/PipelineWatch.hpp"
 #include "ShaderCacheDirectory.hpp"
 #include "ShaderDiskCache.hpp"
 #include <algorithm>
@@ -52,6 +53,7 @@ PipelineCache::PipelineCache(const Context& context, const VkPhysicalDevicePrope
         std::snprintf(name, sizeof(name), "vk-pipelines-%04x-%04x-%08x-%s.bin", properties.vendorID, properties.deviceID, properties.driverVersion, uuid.c_str());
         path = directory / version / name;
     }
+    PipelineWatch::SetDevice(properties.deviceName, properties.vendorID, properties.deviceID, properties.driverVersion);
     std::vector<std::byte> initialData;
     if (!path.empty()) {
         std::lock_guard pathLock(pathMutex(path));
