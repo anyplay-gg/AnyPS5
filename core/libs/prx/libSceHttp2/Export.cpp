@@ -7,8 +7,10 @@
 #include "Transport.hpp"
 #include "Cookies.hpp"
 #include "prx/libkernel/include/Api.hpp"
+#include "prx/libkernel/Equeue/Equeue.hpp"
 #include "prx/libc/include/General.hpp"
 #include <atomic>
+#include <deque>
 #include <mutex>
 #include <memory>
 #include <limits>
@@ -17,6 +19,7 @@
 #include <type_traits>
 #include <unordered_map>
 
+static constexpr int ERROR_NETWORK = static_cast<int>(0x80436063);
 static constexpr int ERROR_INVALID_ID = static_cast<int>(0x817B1100);
 static constexpr int ERROR_NULL_POINTER = static_cast<int>(0x817B1225);
 static constexpr int ERROR_NOT_FOUND = static_cast<int>(0x817B1025);
@@ -36,6 +39,8 @@ struct Http2Handle {
     std::string method, url;
     std::shared_ptr<Http2::Request> transport;
     std::shared_ptr<Http2::Capacity> capacity;
+    std::deque<Http2AsyncResult> completions;
+    bool offline = false;
 };
 
 static std::atomic<int> g_nextHandle{1};
@@ -119,8 +124,38 @@ static std::shared_ptr<Http2::Request> Transport(int id, bool create) {
         if (handle->version != 3) NotImplemented_nid_no_patch("sceHttp2SendRequest: HTTP/1.x transport is not implemented");
         handle->transport = Http2::CreateRequest_nid_no_patch(handle->sslContext, handle->capacity, handle->settings, handle->method, handle->url);
     }
-    if (!handle->transport) NotImplemented_nid_no_patch("sceHttp2: request has not been sent");
+    if (!handle->transport && !handle->offline) NotImplemented_nid_no_patch("sceHttp2: request has not been sent");
     return handle->transport;
+}
+
+static int MissingRequest(int id) {
+    std::lock_guard lock(g_handlesMutex);
+    const auto* handle = FindHandle(id, Http2Kind::Request);
+    return handle && handle->offline ? ERROR_NETWORK : ERROR_INVALID_ID;
+}
+
+static int CompleteAsyncOffline(const char* function, int req_id, const Http2AsyncOption* kqueue_option, const void* option) {
+    if (option != nullptr) NotImplemented_nid_no_patch(function);
+    {
+        std::lock_guard lock(g_handlesMutex);
+        auto* handle = FindHandle(req_id, Http2Kind::Request);
+        if (!handle) return ERROR_INVALID_ID;
+        Http2AsyncResult completion{};
+        completion.req_id = req_id;
+        completion.result = ERROR_NETWORK;
+        handle->completions.push_back(completion);
+        handle->offline = true;
+    }
+    if (kqueue_option == nullptr) return 0;
+    if (EqueueTriggerEvent_nid_postfix(kqueue_option->equeue, static_cast<uintptr_t>(kqueue_option->user_event_id), EVFILT_USER, kqueue_option->user_data) != 0) {
+        {
+            std::lock_guard lock(g_handlesMutex);
+            auto* handle = FindHandle(req_id, Http2Kind::Request);
+            if (handle && !handle->completions.empty()) handle->completions.pop_back();
+        }
+        NotImplemented_nid_no_patch(function);
+    }
+    return 0;
 }
 
 
@@ -191,7 +226,7 @@ int APS5_VABI sceHttp2DeleteTemplate(int tmpl_id) {
 
 int APS5_VABI sceHttp2GetAllResponseHeaders(int req_id, char** header, size_t* header_size) {
     NetBridgeCall netCall("libSceHttp2", __func__, [&](NetBridgeJson& netIn) { netIn.Int("req_id", req_id); });
-    if (!Transport(req_id, false)) return netCall.Ret(ERROR_INVALID_ID);
+    if (!Transport(req_id, false)) return netCall.Ret(MissingRequest(req_id));
     NotImplemented_nid_no_patch(__func__);
     return netCall.Ret(0);
 }
@@ -199,13 +234,13 @@ int APS5_VABI sceHttp2GetAllResponseHeaders(int req_id, char** header, size_t* h
 int APS5_VABI sceHttp2GetResponseContentLength(int req_id, int* result, uint64_t* content_length) {
     NetBridgeCall netCall("libSceHttp2", __func__, [&](NetBridgeJson& netIn) { netIn.Int("req_id", req_id); });
     const auto request = Transport(req_id, false);
-    return netCall.Ret(request ? request->ContentLength(result, content_length) : ERROR_INVALID_ID);
+    return netCall.Ret(request ? request->ContentLength(result, content_length) : MissingRequest(req_id));
 }
 
 int APS5_VABI sceHttp2GetStatusCode(int req_id, int* status_code) {
     NetBridgeCall netCall("libSceHttp2", __func__, [&](NetBridgeJson& netIn) { netIn.Int("req_id", req_id); });
     const auto request = Transport(req_id, false);
-    return netCall.Ret(request ? request->Status(status_code) : ERROR_INVALID_ID);
+    return netCall.Ret(request ? request->Status(status_code) : MissingRequest(req_id));
 }
 
 int APS5_VABI sceHttp2Init(int libnet_mem_id, int libssl_ctx_id, size_t pool_size, int max_concurrent_request) {
@@ -223,13 +258,12 @@ int APS5_VABI sceHttp2Init(int libnet_mem_id, int libssl_ctx_id, size_t pool_siz
 int APS5_VABI sceHttp2ReadData(int req_id, void* data, size_t size) {
     NetBridgeCall netCall("libSceHttp2", __func__, [&](NetBridgeJson& netIn) { netIn.Int("req_id", req_id); netIn.Uint("size", size); });
     const auto request = Transport(req_id, false);
-    return netCall.Ret(request ? request->Read(data, size) : ERROR_INVALID_ID);
+    return netCall.Ret(request ? request->Read(data, size) : MissingRequest(req_id));
 }
 
 int APS5_VABI sceHttp2ReadDataAsync(int req_id, void* data, size_t size, void* kqueue_option, void* option) {
     NetBridgeCall netCall("libSceHttp2", __func__, [&](NetBridgeJson& netIn) { netIn.Int("req_id", req_id); netIn.Uint("size", size); });
-    NotImplemented_nid_no_patch(__func__);
-    return netCall.Ret(0);
+    return netCall.Ret(ERROR_NETWORK);
 }
 
 int APS5_VABI sceHttp2SendRequest(int req_id, const void* post_data, size_t size) {
@@ -240,10 +274,7 @@ int APS5_VABI sceHttp2SendRequest(int req_id, const void* post_data, size_t size
 
 int APS5_VABI sceHttp2SendRequestAsync(int req_id, const void* post_data, size_t size, Http2AsyncOption* kqueue_option, void* option) {
     NetBridgeCall netCall("libSceHttp2", __func__, [&](NetBridgeJson& netIn) { netIn.Int("req_id", req_id); netIn.Uint("size", size); });
-    std::lock_guard lock(g_handlesMutex);
-    if (!FindHandle(req_id, Http2Kind::Request)) return netCall.Ret(ERROR_INVALID_ID);
-    NotImplemented_nid_no_patch(__func__);
-    return netCall.Ret(0);
+    return netCall.Ret(CompleteAsyncOffline(__func__, req_id, kqueue_option, option));
 }
 
 int APS5_VABI sceHttp2SetAuthEnabled(int id, int is_enable) {
@@ -354,7 +385,14 @@ int APS5_VABI sceHttp2Term(int lib_http2_ctx_id) {
 
 int APS5_VABI sceHttp2WaitAsync(int req_id, Http2AsyncResult* result, uint32_t* timeout, void* option) {
     NetBridgeCall netCall("libSceHttp2", __func__, [&](NetBridgeJson& netIn) { netIn.Int("req_id", req_id); });
-    NotImplemented_nid_no_patch(__func__);
+    static_cast<void>(timeout);
+    if (result == nullptr || option != nullptr) NotImplemented_nid_no_patch(__func__);
+    std::lock_guard lock(g_handlesMutex);
+    auto* handle = FindHandle(req_id, Http2Kind::Request);
+    if (!handle) return netCall.Ret(ERROR_INVALID_ID);
+    if (handle->completions.empty()) NotImplemented_nid_no_patch("sceHttp2WaitAsync: waiting for an operation that has not completed");
+    *result = handle->completions.front();
+    handle->completions.pop_front();
     return netCall.Ret(0);
 }
 
