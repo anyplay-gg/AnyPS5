@@ -918,13 +918,33 @@ int APS5_VABI sceNetCtlGetIfStat(NetCtlIfStat* stat) {
     return netCall.Ret(0);
 }
 
+static constexpr std::uint32_t VIRTUAL_LAN_NETMASK = 0xFFFE0000u;
+static constexpr std::uint32_t VIRTUAL_LAN_MTU = 1200;
+
+static bool VirtualLanAddress(std::uint32_t& address) {
+    if (NetBridgeEnabled_nid_no_patch() == 0) return false;
+    NetBridgeStateView view{};
+    NetBridgeState_nid_no_patch(&view);
+    address = view.address;
+    return view.address != 0;
+}
+
 int APS5_VABI sceNetCtlGetInfo(int code, NetCtlInfo* info) {
     NetBridgeCall netCall("libSceNetCtl", __func__, [&](NetBridgeJson& netIn) { netIn.Int("code", code); });
     if (!g_initialized.load()) return netCall.Ret(SCE_NET_CTL_ERROR_NOT_INITIALIZED);
     if (!info) return netCall.Ret(SCE_NET_CTL_ERROR_INVALID_ADDR);
     if (code < NET_CTL_INFO_DEVICE || code > NET_CTL_INFO_HTTP_PROXY_PORT) return netCall.Ret(SCE_NET_CTL_ERROR_INVALID_CODE);
     HostIpv4Interface host;
-    if (!FindHostIpv4Interface(host)) return netCall.Ret(SCE_NET_CTL_ERROR_NOT_CONNECTED);
+    const bool hostFound = FindHostIpv4Interface(host);
+    std::uint32_t virtualAddress = 0;
+    if (VirtualLanAddress(virtualAddress)) {
+        host.address.s_addr = htonl(virtualAddress);
+        host.netmask.s_addr = htonl(VIRTUAL_LAN_NETMASK);
+        host.gateway = {};
+        host.mtu = VIRTUAL_LAN_MTU;
+    } else if (!hostFound) {
+        return netCall.Ret(SCE_NET_CTL_ERROR_NOT_CONNECTED);
+    }
     switch (code) {
         case NET_CTL_INFO_DEVICE: WriteInfoWord(info, NET_CTL_DEVICE_WIRED); break;
         case NET_CTL_INFO_ETHER_ADDR: std::memcpy(info->opaque, NET_CTL_ETHER_ADDR, sizeof(NET_CTL_ETHER_ADDR)); break;
