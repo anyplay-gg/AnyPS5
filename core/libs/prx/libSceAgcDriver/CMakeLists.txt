@@ -932,6 +932,18 @@ if(BUILD_TESTING)
     set_tests_properties(agc_huge_shader_policy PROPERTIES TIMEOUT 20)
     if(WIN32)
         set_tests_properties(agc_huge_shader_policy PROPERTIES ENVIRONMENT_MODIFICATION
+
+add_test_executable(agc_pipeline_watch_tests EXCLUDE_FROM_ALL tests/PipelineWatch.cpp)
+target_include_directories(agc_pipeline_watch_tests PRIVATE ${LIBS_INCLUDE_DIR})
+target_link_libraries(agc_pipeline_watch_tests PRIVATE libc)
+set_target_properties(agc_pipeline_watch_tests PROPERTIES CXX_EXTENSIONS OFF)
+configure_windows_unwind(agc_pipeline_watch_tests)
+if(BUILD_TESTING)
+    set_target_properties(agc_pipeline_watch_tests PROPERTIES EXCLUDE_FROM_ALL OFF)
+    add_test(NAME agc_pipeline_watch COMMAND agc_pipeline_watch_tests)
+    set_tests_properties(agc_pipeline_watch PROPERTIES TIMEOUT 20)
+    if(WIN32)
+        set_tests_properties(agc_pipeline_watch PROPERTIES ENVIRONMENT_MODIFICATION
             "PATH=path_list_prepend:$<TARGET_FILE_DIR:libc>")
     endif()
 endif()
