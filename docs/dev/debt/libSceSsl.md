@@ -14,3 +14,6 @@
 - [sceSslGetPem](../../../core/libs/prx/libSceSsl/Export.cpp): native argument validation, CRLF line endings, 64-character Base64 lines, NUL-inclusive length and buffer clearing on insufficient capacity are recovered. Foreign and expired certificate handles throw instead of performing native unchecked pointer access. DER reserialization differences for noncanonical certificates remain unverified.
 
 - This pending declaration has an unverified signature and behavior; it is a parameterless import-resolution declaration and throws through `NotImplemented_nid_no_patch`: [`sceSslSetServerName`](../../../core/libs/prx/libSceSsl/Export.cpp).
+
+### Functional
+- [SslTrustHostRoots_nid_no_patch](../../../core/libs/prx/libSceSsl/Export.cpp) (libSceSsl) - makes one connection that has not started also trust the host CA list, `/<sandbox word>/common/cert/CA_LIST.cer`. The list is read once per process into its own allocation pool, not the context's `sceSslInit` pool, and is linked after the context's authorities; `sceSslGetCaList` and `sceSslGetCaCerts` do not report it. A missing list, or one without a certificate, adds nothing. Only the HTTP transport calls it: whether a bare libSceSsl connection on the console trusts built-in roots is not measured, so `sceSslCreateConnection` alone still trusts only the context's authorities.

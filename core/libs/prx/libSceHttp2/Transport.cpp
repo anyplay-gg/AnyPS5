@@ -359,6 +359,7 @@ struct Request::State {
         if (result < 0) return result;
         ssl = sceSslCreateConnection(sslContext, socket, url.host.c_str());
         Require(ssl > 0, "sceHttp2: SSL context or connection unavailable");
+        Require(SslTrustHostRoots_nid_no_patch(ssl) == 0, "sceHttp2: host CA list rejected the SSL connection");
         Require(sceSslDisableVerifyOption(ssl, 0x3d) == 0 && sceSslEnableVerifyOption(ssl, settings.verifyFlags) == 0,
             "sceHttp2: SSL verification options rejected");
         Require(sceSslSetAlpn(ssl, "h2") == 0, "sceHttp2: ALPN setup failed");

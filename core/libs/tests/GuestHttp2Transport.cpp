@@ -8,6 +8,8 @@
 #endif
 
 #include "SceTypes.hpp"
+#include "prx/libc/include/General.hpp"
+#include "prx/libkernel/include/Api.hpp"
 #include "prx/libSceHttp2/include/Http2.hpp"
 #include "prx/libSceNet/include/Net.hpp"
 #include "prx/libSceSsl/include/Ssl.hpp"
@@ -28,6 +30,8 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <filesystem>
+#include <fstream>
 #include <future>
 #include <map>
 #include <mutex>
@@ -516,6 +520,40 @@ void Deadline(int ssl, Mode mode, bool overall) {
 
 }
 
+int LoadedContext(const char* pem) {
+    const int context = sceSslInit_nid_postfix(8 * 1024 * 1024);
+    Require(context > 0, "SSL context with one authority");
+    std::string text = pem;
+    SceSsl::Data authority{reinterpret_cast<std::uint8_t*>(text.data()), text.size() + 1};
+    SceSsl::Data* authorities[] = {&authority};
+    Require(sceSslLoadCert(context, 1, authorities, nullptr, nullptr) == 0, "load one authority");
+    return context;
+}
+
+void HostRoots(int loaded, std::string_view list) {
+    const std::string directory = std::string("/") + sceKernelGetFsSandboxRandomWord() + "/common/cert";
+    if (list == "missing") {
+        BlockPathAlias_nid_no_patch(directory.c_str());
+    } else {
+        const auto path = std::filesystem::current_path() / std::filesystem::path(directory).relative_path() / "CA_LIST.cer";
+        std::filesystem::create_directories(path.parent_path());
+        std::ofstream file(path, std::ios::binary | std::ios::trunc);
+        file << (list == "trusted" ? RootPem : list == "untrusted" ? ClientPem : list == "blank" ? "no certificate\n" : "");
+        Require(static_cast<bool>(file.flush()), "write host CA list");
+    }
+    Require(SslTrustHostRoots_nid_no_patch(0x7fffffff) == static_cast<int>(0x8095f006), "unknown SSL connection id");
+    const bool trusted = list == "trusted";
+    const int bare = sceSslInit_nid_postfix(8 * 1024 * 1024);
+    Require(bare > 0, "SSL context without authorities");
+    if (trusted) Success(bare, Mode::Normal);
+    else Failure(bare, Mode::Normal);
+    const int unrelated = LoadedContext(ClientPem);
+    if (trusted) Success(unrelated, Mode::Normal);
+    else Failure(unrelated, Mode::Normal);
+    Success(loaded, Mode::Normal);
+    Require(sceSslTerm_nid_postfix(unrelated) == 0 && sceSslTerm_nid_postfix(bare) == 0, "host root SSL term");
+}
+
 int main(int argc, char** argv) {
 #ifndef _WIN32
     std::signal(SIGPIPE, SIG_IGN);
@@ -526,7 +564,9 @@ int main(int argc, char** argv) {
     SceSsl::Data root{reinterpret_cast<std::uint8_t*>(const_cast<char*>(RootPem)), sizeof(RootPem)};
     SceSsl::Data* authorities[] = {&root};
     Require(sceSslLoadCert(ssl, 1, authorities, nullptr, nullptr) == 0, "trust loopback CA");
-    if (argc == 2 && std::string_view(argv[1]) == "--early") {
+    if (argc == 3 && std::string_view(argv[1]) == "--host-roots") {
+        HostRoots(ssl, argv[2]);
+    } else if (argc == 2 && std::string_view(argv[1]) == "--early") {
         for (const auto mode : {Mode::EarlyFinal, Mode::EarlyReset, Mode::EarlyEmpty, Mode::EarlyLarge}) EarlyResponse(ssl, mode);
         Failure(ssl, Mode::EarlyResetIncomplete);
 #ifdef _WIN32
