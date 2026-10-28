@@ -10,6 +10,7 @@
 #endif
 #include "prx/libSceAgcDriver/Graphics/include/PipelineJournal.hpp"
 #include "prx/libSceAgcDriver/Graphics/include/PipelineWatch.hpp"
+#include "prx/libSceAgcDriver/Execution/include/HugeShaderPolicy.hpp"
 #include "prx/libSceAgcDriver/Graphics/include/DeferredDestruction.hpp"
 #include "prx/libSceAgcDriver/Execution/include/VulkanDevice.hpp"
 #include "prx/libSceAgcDriver/Execution/include/FloatFlushProbe.hpp"
@@ -5390,7 +5391,8 @@ std::shared_ptr<ComputePipelineObjects> VulkanDevice::createComputePipeline(cons
     layoutInfo.pushConstantRangeCount = pushStages != 0 ? 1 : 0;
     layoutInfo.pPushConstantRanges = pushStages != 0 ? &push : nullptr;
     check(state->DeviceFunction<PFN_vkCreatePipelineLayout>("vkCreatePipelineLayout")(state->device, &layoutInfo, nullptr, &objects->layout), "vkCreatePipelineLayout");
-    const VkPipelineCreateFlags pipelineFlags = computePipelineFlags();
+    const VkPipelineCreateFlags pipelineFlags = computePipelineFlags() | HugeShaderPipelineFlags(shader.spirv.size(), HugeShaderWords());
+    if ((pipelineFlags & VK_PIPELINE_CREATE_DISABLE_OPTIMIZATION_BIT) != 0) std::fprintf(stderr, "[pipeline] compiling a compute program of %zu SPIR-V words (program 0x%llx) without driver optimization; APS5_HUGE_SHADER_WORDS sets the size from which this applies\n", shader.spirv.size(), static_cast<unsigned long long>(programAddress));
     const Graphics::PipelineSpecialization specialization(shader);
     const auto subgroupSize = computeSubgroupSize(shader);
     const auto stageFlags = computeStageFlags(shader);
@@ -5443,7 +5445,7 @@ VkPipeline VulkanDevice::splitComputePipeline(const Graphics::Context& context, 
     VkShaderModule module = Graphics::CreateShaderModule(state->DeviceFunction<PFN_vkCreateShaderModule>("vkCreateShaderModule"), state->device, state->graphicsPipelineLibrary, shader.spirv.data(), shader.spirv.size() * sizeof(std::uint32_t), "vkCreateShaderModule");
     VkPipeline pipeline = VK_NULL_HANDLE;
     try {
-        CreateComputePipeline(state->device, state->DeviceFunction<PFN_vkCreateComputePipelines>("vkCreateComputePipelines"), context.pipelineCache, module, objects.layout, computePipelineFlags(), computeStageFlags(shader), specialization.Info(), computeSubgroupSize(shader), &pipeline, context.pipelineCacheSynchronization);
+        CreateComputePipeline(state->device, state->DeviceFunction<PFN_vkCreateComputePipelines>("vkCreateComputePipelines"), context.pipelineCache, module, objects.layout, computePipelineFlags() | HugeShaderPipelineFlags(shader.spirv.size(), HugeShaderWords()), computeStageFlags(shader), specialization.Info(), computeSubgroupSize(shader), &pipeline, context.pipelineCacheSynchronization);
     } catch (...) {
         objects.destroyModule(objects.device, module, nullptr);
         throw;
