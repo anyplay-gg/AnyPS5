@@ -932,6 +932,9 @@ if(BUILD_TESTING)
     set_tests_properties(agc_huge_shader_policy PROPERTIES TIMEOUT 20)
     if(WIN32)
         set_tests_properties(agc_huge_shader_policy PROPERTIES ENVIRONMENT_MODIFICATION
+            "PATH=path_list_prepend:$<TARGET_FILE_DIR:libc>")
+    endif()
+endif()
 
 add_test_executable(agc_pipeline_watch_tests EXCLUDE_FROM_ALL tests/PipelineWatch.cpp)
 target_include_directories(agc_pipeline_watch_tests PRIVATE ${LIBS_INCLUDE_DIR})
