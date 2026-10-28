@@ -38,6 +38,7 @@
 #include <set>
 #include <stdexcept>
 #include <string>
+#include <thread>
 #include <utility>
 #include "SceTypes.hpp"
 #include "prx/libSceNetCtl/include/NetBridge.hpp"
@@ -2390,6 +2391,20 @@ int APS5_VABI sceNetGetSockInfo6(std::int32_t s, NetSockInfo6* info, std::uint32
     return netCall.Ret(written);
 }
 
+static void pace_empty_poll(bool ready) {
+    constexpr auto HotGap = std::chrono::microseconds(500);
+    constexpr unsigned YieldAfter = 32;
+    constexpr unsigned SleepAfter = 256;
+    thread_local std::chrono::steady_clock::time_point last{};
+    thread_local unsigned streak = 0;
+    const auto now = std::chrono::steady_clock::now();
+    if (ready || now - last >= HotGap) streak = 0;
+    else if (streak < SleepAfter) ++streak;
+    if (streak >= SleepAfter) std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    else if (streak >= YieldAfter) std::this_thread::yield();
+    last = streak == 0 ? now : std::chrono::steady_clock::now();
+}
+
 int APS5_VABI sceNetEpollCreate(const char* name, int flags) {
     NetBridgeCall netCall("libSceNet", __func__, [&](NetBridgeJson& netIn) { netIn.Int("flags", flags); });
     if (!name || flags != 0) return netCall.Ret(fail(NET_EINVAL));
@@ -2459,7 +2474,10 @@ int APS5_VABI sceNetEpollAbort(int eid, int flags) {
 }
 
 int APS5_VABI sceNetEpollControl(int eid, int op, int id, const NetEpollEvent* event) {
-    NetBridgeCall netCall("libSceNet", __func__, [&](NetBridgeJson& netIn) { netIn.Int("eid", eid); netIn.Int("op", op); netIn.Int("id", id); });
+    NetBridgeCall netCall("libSceNet", __func__, [&](NetBridgeJson& netIn) {
+        netIn.Int("eid", eid); netIn.Int("op", op); netIn.Int("id", id);
+        if (event != nullptr) netIn.Uint("events", event->events);
+    });
     bool kernel = false;
     {
         std::lock_guard lk(g_mutex);
@@ -2491,6 +2509,15 @@ int APS5_VABI sceNetEpollControl(int eid, int op, int id, const NetEpollEvent* e
 int APS5_VABI sceNetEpollWait(int eid, NetEpollEvent* events, int maxevents, int timeout) {
     NetBridgeCall netCall("libSceNet", __func__, [&](NetBridgeJson& netIn) { netIn.Int("eid", eid); netIn.Int("maxevents", maxevents); netIn.Int("timeout", timeout); });
     if (!events || maxevents <= 0) return netCall.Ret(fail(NET_EINVAL));
+    const auto readyResult = [&](int count) {
+        if (netCall.On() && count > 0) {
+            netCall.Out().Begin("ready");
+            for (int index = 0; index < count; ++index) netCall.Out().Uint(std::to_string(events[index].ident), events[index].events);
+            netCall.Out().End();
+        }
+        if (timeout == 0) pace_empty_poll(count > 0);
+        return netCall.Ret(count);
+    };
     struct Watch {
         int descriptor;
         std::shared_ptr<const NetEpollEvent> registration;
@@ -2539,7 +2566,7 @@ int APS5_VABI sceNetEpollWait(int eid, NetEpollEvent* events, int maxevents, int
             }
         }
         if (watches.empty()) {
-            if (timeout == 0) return netCall.Ret(0);
+            if (timeout == 0) return readyResult(0);
             std::unique_lock lk(g_mutex);
             const auto now = std::chrono::steady_clock::now();
             if (timeout > 0 && now >= deadline) return netCall.Ret(0);
@@ -2609,10 +2636,10 @@ int APS5_VABI sceNetEpollWait(int eid, NetEpollEvent* events, int maxevents, int
                     events[count].events = guest_events;
                     ++count;
                 }
-                if (count > 0) return netCall.Ret(count);
+                if (count > 0) return readyResult(count);
             }
         }
-        if (timeout == 0) return netCall.Ret(0);
+        if (timeout == 0) return readyResult(0);
     }
 }
 
