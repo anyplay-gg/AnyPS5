@@ -253,6 +253,7 @@ static constexpr int ParameterNotInitialized = static_cast<int>(0x80553502);
 static constexpr int ParameterInvalidArgument = static_cast<int>(0x80553503);
 static constexpr int ParameterAlreadyInitialized = static_cast<int>(0x8055350f);
 static constexpr int ParameterTerminatedUninitialized = static_cast<int>(0x80553510);
+static constexpr int ParameterBodyMissing = static_cast<int>(0x80553512);
 
 struct ParameterObject {
     void* base;
@@ -285,6 +286,13 @@ static int TerminateParameter(void* self) {
     if (parameter->implementation == nullptr) return ParameterTerminatedUninitialized;
     parameter->implementation = nullptr;
     return 0;
+}
+
+static int InitializeParameterWithBody(void* self, const std::uint64_t* context, const bool textsPresent, const IntrusivePtr* body) {
+    const int result = InitializeParameter(self, context, textsPresent);
+    if (result != 0 || body->object != nullptr) return result;
+    static_cast<ParameterObject*>(self)->implementation = nullptr;
+    return ParameterBodyMissing;
 }
 
 int APS5_VABI _ZN3sce2Np9CppWebApi17TitleCloudStorage2V17DataApi23ParameterToDownloadData10initializeEPNS1_6Common10LibContextEPKci(void* self, const std::uint64_t* context, const char* text, int value) {
@@ -1131,9 +1139,15 @@ void* APS5_VABI _ZN3sce2Np9CppWebApi6Common6VectorINS2_12IntrusivePtrINS1_14Sess
     return netCall.Ret(nullptr);
 }
 
+<<<<<<< HEAD
 int APS5_VABI _ZN3sce2Np9CppWebApi14SessionManager2V117PlayerSessionsApi36ParameterToJoinPlayerSessionAsPlayerD1Ev() {
     NetBridgeCall netCall("libSceNpCppWebApi", __func__);
     return netCall.Ret(0);
+=======
+int APS5_VABI _ZN3sce2Np9CppWebApi14SessionManager2V117PlayerSessionsApi36ParameterToJoinPlayerSessionAsPlayerD1Ev(void* self) {
+    (void)self;
+    return 0;
+>>>>>>> upstream/main
 }
 
 const char* APS5_VABI _ZNK3sce2Np9CppWebApi14SessionManager2V110FromMember11getOnlineIdEv(const void* self) {
@@ -1143,9 +1157,14 @@ const char* APS5_VABI _ZNK3sce2Np9CppWebApi14SessionManager2V110FromMember11getO
     return netCall.Ret(nullptr);
 }
 
+<<<<<<< HEAD
 int APS5_VABI _ZN3sce2Np9CppWebApi14SessionManager2V117PlayerSessionsApi38ParameterToGetPlayerSessionInvitations26setinvitationInvalidFilterEPKc() {
     NetBridgeCall netCall("libSceNpCppWebApi", __func__);
     return netCall.Ret(0);
+=======
+int APS5_VABI _ZN3sce2Np9CppWebApi14SessionManager2V117PlayerSessionsApi38ParameterToGetPlayerSessionInvitations26setinvitationInvalidFilterEPKc(void* self, const char* filter) {
+    return SetParameterText(self, filter);
+>>>>>>> upstream/main
 }
 
 void APS5_VABI _ZN3sce2Np9CppWebApi6Common12IntrusivePtrINS1_14SessionManager2V120RequestPlayerSessionEEC1Ev(IntrusivePtr* self) {
@@ -1168,9 +1187,15 @@ void APS5_VABI _ZN3sce2Np9CppWebApi6Common12IntrusivePtrINS1_14SessionManager2V1
     *self = {};
 }
 
+<<<<<<< HEAD
 int APS5_VABI _ZN3sce2Np9CppWebApi14SessionManager2V117PlayerSessionsApi29ParameterToLeavePlayerSessionD1Ev() {
     NetBridgeCall netCall("libSceNpCppWebApi", __func__);
     return netCall.Ret(0);
+=======
+int APS5_VABI _ZN3sce2Np9CppWebApi14SessionManager2V117PlayerSessionsApi29ParameterToLeavePlayerSessionD1Ev(void* self) {
+    (void)self;
+    return 0;
+>>>>>>> upstream/main
 }
 
 int APS5_VABI _ZN3sce2Np9CppWebApi14SessionManager2V122LocalizedStringFactory6createEPNS1_6Common10LibContextEPKcNS_4Json6ObjectEPNS5_12IntrusivePtrINS3_15LocalizedStringEEE() {
@@ -1323,6 +1348,7 @@ int APS5_VABI _ZN3sce2Np9CppWebApi6Common15DefaultResponseC1Ev(void* self) {
     return netCall.Ret(0);
 }
 
+<<<<<<< HEAD
 int APS5_VABI _ZN3sce2Np9CppWebApi14SessionManager2V117PlayerSessionsApi36ParameterToJoinPlayerSessionAsPlayer9terminateEv() {
     NetBridgeCall netCall("libSceNpCppWebApi", __func__);
     return netCall.Ret(0);
@@ -1331,6 +1357,14 @@ int APS5_VABI _ZN3sce2Np9CppWebApi14SessionManager2V117PlayerSessionsApi36Parame
 int APS5_VABI _ZN3sce2Np9CppWebApi14SessionManager2V117PlayerSessionsApi31ParameterToCreatePlayerSessions10initializeEPNS1_6Common10LibContextENS6_12IntrusivePtrINS3_29PostPlayerSessionsRequestBodyEEE() {
     NetBridgeCall netCall("libSceNpCppWebApi", __func__);
     return netCall.Ret(0);
+=======
+int APS5_VABI _ZN3sce2Np9CppWebApi14SessionManager2V117PlayerSessionsApi36ParameterToJoinPlayerSessionAsPlayer9terminateEv(void* self) {
+    return TerminateParameter(self);
+}
+
+int APS5_VABI _ZN3sce2Np9CppWebApi14SessionManager2V117PlayerSessionsApi31ParameterToCreatePlayerSessions10initializeEPNS1_6Common10LibContextENS6_12IntrusivePtrINS3_29PostPlayerSessionsRequestBodyEEE(void* self, const std::uint64_t* context, const IntrusivePtr* body) {
+    return InitializeParameterWithBody(self, context, true, body);
+>>>>>>> upstream/main
 }
 
 void* APS5_VABI _ZNK3sce2Np9CppWebApi6Common12IntrusivePtrINS1_14SessionManager2V110FromMemberEEptEv(const IntrusivePtr* self) {
@@ -1354,9 +1388,15 @@ void APS5_VABI _ZN3sce2Np9CppWebApi6Common6VectorINS2_12IntrusivePtrINS1_14Sessi
     ReleaseIntrusivePtr(self, 0x30, __func__);
 }
 
+<<<<<<< HEAD
 int APS5_VABI _ZN3sce2Np9CppWebApi14SessionManager2V117PlayerSessionsApi29ParameterToLeavePlayerSessionC1Ev() {
     NetBridgeCall netCall("libSceNpCppWebApi", __func__);
     return netCall.Ret(0);
+=======
+int APS5_VABI _ZN3sce2Np9CppWebApi14SessionManager2V117PlayerSessionsApi29ParameterToLeavePlayerSessionC1Ev(void* self) {
+    ConstructParameter(self);
+    return 0;
+>>>>>>> upstream/main
 }
 
 void APS5_VABI _ZN3sce2Np9CppWebApi6Common12IntrusivePtrINS1_14SessionManager2V130PostPlayerSessionsResponseBodyEED1Ev(IntrusivePtr* self) {
@@ -1410,9 +1450,15 @@ int APS5_VABI _ZN3sce2Np9CppWebApi6Common15TransactionBaseINS2_12IntrusivePtrINS
     return netCall.Ret(SCE_NP_WEBAPI_ERROR_NOT_SIGNED_IN);
 }
 
+<<<<<<< HEAD
 int APS5_VABI _ZN3sce2Np9CppWebApi14SessionManager2V117PlayerSessionsApi31ParameterToCreatePlayerSessionsD1Ev() {
     NetBridgeCall netCall("libSceNpCppWebApi", __func__);
     return netCall.Ret(0);
+=======
+int APS5_VABI _ZN3sce2Np9CppWebApi14SessionManager2V117PlayerSessionsApi31ParameterToCreatePlayerSessionsD1Ev(void* self) {
+    (void)self;
+    return 0;
+>>>>>>> upstream/main
 }
 
 int APS5_VABI _ZN3sce2Np9CppWebApi14SessionManager2V117PlayerSessionsApi27getPlayerSessionInvitationsEiRKNS4_38ParameterToGetPlayerSessionInvitationsERNS1_6Common11TransactionINS8_12IntrusivePtrINS3_54GetUsersAccountIdPlayerSessionsInvitationsResponseBodyEEENSA_INS8_18ResponseHeaderBaseEEEEE() {
@@ -1455,9 +1501,15 @@ void* APS5_VABI _ZNK3sce2Np9CppWebApi6Common12IntrusivePtrINS1_14SessionManager2
     return netCall.Ret(self->object);
 }
 
+<<<<<<< HEAD
 int APS5_VABI _ZN3sce2Np9CppWebApi14SessionManager2V117PlayerSessionsApi38ParameterToGetPlayerSessionInvitationsC1Ev() {
     NetBridgeCall netCall("libSceNpCppWebApi", __func__);
     return netCall.Ret(0);
+=======
+int APS5_VABI _ZN3sce2Np9CppWebApi14SessionManager2V117PlayerSessionsApi38ParameterToGetPlayerSessionInvitationsC1Ev(void* self) {
+    ConstructParameter(self);
+    return 0;
+>>>>>>> upstream/main
 }
 
 int APS5_VABI _ZN3sce2Np9CppWebApi6Common6VectorINS2_12IntrusivePtrINS1_14SessionManager2V126RequestPlayerSessionPlayerEEEE8pushBackERKS8_(IntrusivePtr* self, const void* element) {
@@ -1488,9 +1540,15 @@ int APS5_VABI _ZNK3sce2Np9CppWebApi6Common11TransactionINS2_12IntrusivePtrINS1_1
     return netCall.Ret(SCE_NP_WEBAPI_ERROR_NOT_SIGNED_IN);
 }
 
+<<<<<<< HEAD
 int APS5_VABI _ZN3sce2Np9CppWebApi14SessionManager2V117PlayerSessionsApi38ParameterToGetPlayerSessionInvitationsD1Ev() {
     NetBridgeCall netCall("libSceNpCppWebApi", __func__);
     return netCall.Ret(0);
+=======
+int APS5_VABI _ZN3sce2Np9CppWebApi14SessionManager2V117PlayerSessionsApi38ParameterToGetPlayerSessionInvitationsD1Ev(void* self) {
+    (void)self;
+    return 0;
+>>>>>>> upstream/main
 }
 
 void APS5_VABI _ZN3sce2Np9CppWebApi6Common12IntrusivePtrINS2_6VectorINS3_INS1_14SessionManager2V113PlayerSessionEEEEEED1Ev(IntrusivePtr* self) {
@@ -1527,6 +1585,7 @@ int APS5_VABI _ZN3sce2Np9CppWebApi6Common15TransactionBaseINS2_12IntrusivePtrINS
     return netCall.Ret(SCE_NP_WEBAPI_ERROR_NOT_SIGNED_IN);
 }
 
+<<<<<<< HEAD
 int APS5_VABI _ZN3sce2Np9CppWebApi14SessionManager2V117PlayerSessionsApi31ParameterToCreatePlayerSessionsC1Ev() {
     NetBridgeCall netCall("libSceNpCppWebApi", __func__);
     return netCall.Ret(0);
@@ -1535,6 +1594,15 @@ int APS5_VABI _ZN3sce2Np9CppWebApi14SessionManager2V117PlayerSessionsApi31Parame
 int APS5_VABI _ZN3sce2Np9CppWebApi14SessionManager2V117PlayerSessionsApi36ParameterToJoinPlayerSessionAsPlayer10initializeEPNS1_6Common10LibContextEPKcNS6_12IntrusivePtrINS3_51PostPlayerSessionsSessionIdMemberPlayersRequestBodyEEE() {
     NetBridgeCall netCall("libSceNpCppWebApi", __func__);
     return netCall.Ret(0);
+=======
+int APS5_VABI _ZN3sce2Np9CppWebApi14SessionManager2V117PlayerSessionsApi31ParameterToCreatePlayerSessionsC1Ev(void* self) {
+    ConstructParameter(self);
+    return 0;
+}
+
+int APS5_VABI _ZN3sce2Np9CppWebApi14SessionManager2V117PlayerSessionsApi36ParameterToJoinPlayerSessionAsPlayer10initializeEPNS1_6Common10LibContextEPKcNS6_12IntrusivePtrINS3_51PostPlayerSessionsSessionIdMemberPlayersRequestBodyEEE(void* self, const std::uint64_t* context, const char* sessionId, const IntrusivePtr* body) {
+    return InitializeParameterWithBody(self, context, sessionId != nullptr, body);
+>>>>>>> upstream/main
 }
 
 bool APS5_VABI _ZNK3sce2Np9CppWebApi14SessionManager2V154GetUsersAccountIdPlayerSessionsInvitationsResponseBody16invitationsIsSetEv(const void* self) {
@@ -1549,9 +1617,14 @@ void* APS5_VABI _ZN3sce2Np9CppWebApi6Common6VectorINS2_12IntrusivePtrINS1_14Sess
     return netCall.Ret(HostVectorElement(self, index, __func__));
 }
 
+<<<<<<< HEAD
 int APS5_VABI _ZN3sce2Np9CppWebApi14SessionManager2V117PlayerSessionsApi29ParameterToLeavePlayerSession10initializeEPNS1_6Common10LibContextEPKcSA_() {
     NetBridgeCall netCall("libSceNpCppWebApi", __func__);
     return netCall.Ret(0);
+=======
+int APS5_VABI _ZN3sce2Np9CppWebApi14SessionManager2V117PlayerSessionsApi29ParameterToLeavePlayerSession10initializeEPNS1_6Common10LibContextEPKcSA_(void* self, const std::uint64_t* context, const char* sessionId, const char* accountId) {
+    return InitializeParameter(self, context, sessionId != nullptr && accountId != nullptr);
+>>>>>>> upstream/main
 }
 
 void APS5_VABI _ZN3sce2Np9CppWebApi6Common12IntrusivePtrINS1_14SessionManager2V115LocalizedStringEED1Ev(IntrusivePtr* self) {
@@ -1606,9 +1679,15 @@ int APS5_VABI _ZN3sce2Np9CppWebApi14SessionManager2V117PlayerSessionsApi20create
     return netCall.Ret(SCE_NP_WEBAPI_ERROR_NOT_SIGNED_IN);
 }
 
+<<<<<<< HEAD
 int APS5_VABI _ZN3sce2Np9CppWebApi14SessionManager2V117PlayerSessionsApi36ParameterToJoinPlayerSessionAsPlayerC1Ev() {
     NetBridgeCall netCall("libSceNpCppWebApi", __func__);
     return netCall.Ret(0);
+=======
+int APS5_VABI _ZN3sce2Np9CppWebApi14SessionManager2V117PlayerSessionsApi36ParameterToJoinPlayerSessionAsPlayerC1Ev(void* self) {
+    ConstructParameter(self);
+    return 0;
+>>>>>>> upstream/main
 }
 
 bool APS5_VABI _ZNK3sce2Np9CppWebApi14SessionManager2V136UsersPlayerSessionsInvitationForRead9fromIsSetEv(const void* self) {
@@ -1673,9 +1752,14 @@ bool APS5_VABI _ZNK3sce2Np9CppWebApi6Common8IteratorINS2_12IntrusivePtrINS1_14Se
     return netCall.Ret(false);
 }
 
+<<<<<<< HEAD
 int APS5_VABI _ZN3sce2Np9CppWebApi14SessionManager2V117PlayerSessionsApi38ParameterToGetPlayerSessionInvitations10initializeEPNS1_6Common10LibContextEPKc() {
     NetBridgeCall netCall("libSceNpCppWebApi", __func__);
     return netCall.Ret(0);
+=======
+int APS5_VABI _ZN3sce2Np9CppWebApi14SessionManager2V117PlayerSessionsApi38ParameterToGetPlayerSessionInvitations10initializeEPNS1_6Common10LibContextEPKc(void* self, const std::uint64_t* context, const char* accountId) {
+    return InitializeParameter(self, context, accountId != nullptr);
+>>>>>>> upstream/main
 }
 
 void* APS5_VABI _ZNK3sce2Np9CppWebApi6Common12IntrusivePtrINS1_14SessionManager2V130PostPlayerSessionsResponseBodyEEptEv(const IntrusivePtr* self) {
@@ -2430,9 +2514,14 @@ int APS5_VABI _ZN3sce2Np9CppWebApi14SessionManager2V117PlayerSessionsApi28Parame
     return netCall.Ret(0);
 }
 
+<<<<<<< HEAD
 int APS5_VABI _ZN3sce2Np9CppWebApi14SessionManager2V117PlayerSessionsApi29ParameterToLeavePlayerSession9terminateEv() {
     NetBridgeCall netCall("libSceNpCppWebApi", __func__);
     return netCall.Ret(0);
+=======
+int APS5_VABI _ZN3sce2Np9CppWebApi14SessionManager2V117PlayerSessionsApi29ParameterToLeavePlayerSession9terminateEv(void* self) {
+    return TerminateParameter(self);
+>>>>>>> upstream/main
 }
 
 int APS5_VABI _ZN3sce2Np9CppWebApi14SessionManager2V117PlayerSessionsApi39ParameterToSendPlayerSessionInvitationsD1Ev() {
@@ -2467,9 +2556,14 @@ int APS5_VABI _ZN3sce2Np9CppWebApi11UserProfile2V19BlocksApi27ParameterToGetBloc
     return netCall.Ret(0);
 }
 
+<<<<<<< HEAD
 int APS5_VABI _ZN3sce2Np9CppWebApi14SessionManager2V117PlayerSessionsApi31ParameterToCreatePlayerSessions9terminateEv() {
     NetBridgeCall netCall("libSceNpCppWebApi", __func__);
     return netCall.Ret(0);
+=======
+int APS5_VABI _ZN3sce2Np9CppWebApi14SessionManager2V117PlayerSessionsApi31ParameterToCreatePlayerSessions9terminateEv(void* self) {
+    return TerminateParameter(self);
+>>>>>>> upstream/main
 }
 
 int APS5_VABI _ZNK3sce2Np9CppWebApi14SessionManager2V120PlayerSessionForRead16customData1IsSetEv() {
