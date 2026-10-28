@@ -2446,8 +2446,9 @@ int APS5_VABI sceNetShowNetstat(void) {
             local.ss_family = remote.ss_family = socket.family == NET_AF_INET6 ? AF_INET6 : AF_INET;
             std::int32_t send = 0;
             std::int32_t receive = 0;
-            if (sock_buffer_size(socket, true, send) != 0) send = 0;
-            if (sock_buffer_size(socket, false, receive) != 0) receive = 0;
+            const SockInfoSource source{socket.native, socket.native->value, socket.family, socket.type, socket.native->nonblock, socket.rcv_buffer, socket.snd_buffer};
+            if (sock_buffer_size(source, true, send) != 0) send = 0;
+            if (sock_buffer_size(source, false, receive) != 0) receive = 0;
             const char* kind = type == NET_SOCK_STREAM ? "tcp" : type == NET_SOCK_DGRAM ? "udp" : "raw";
             const char* state = type != NET_SOCK_STREAM ? "OPENED" : socket.listening ? "LISTEN" : connected ? "ESTABLISHED" : "CLOSED";
             std::printf("ID: %4d (%5s,  0) *....-%c %s pid=0x%08x %s\n", id, kind, socket.native->nonblock ? '*' : '.', state, static_cast<unsigned>(pid), socket.name.c_str());
