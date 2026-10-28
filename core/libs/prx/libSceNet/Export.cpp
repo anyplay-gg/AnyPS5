@@ -323,7 +323,8 @@ struct Sock {
     int keepalive = 0;
     bool lan = false;
     bool lan_broadcast = false;
-    bool lan_reuse = false;
+    bool lan_reuse_address = false;
+    bool lan_reuse_port = false;
     std::uint16_t lan_group_port = 0;
     std::uint32_t lan_address = 0;
 };
@@ -1085,6 +1086,7 @@ struct LanGroup {
 };
 
 HostMutex g_lan_mutex;
+HostMutex g_lan_join_mutex;
 
 std::map<std::uint16_t, LanGroup*>& lan_groups() {
     static auto* groups = new std::map<std::uint16_t, LanGroup*>();
@@ -1156,7 +1158,8 @@ void lan_leave(std::uint16_t vport, std::uint16_t member) {
         const auto it = groups.find(vport);
         if (it == groups.end()) return;
         auto& members = it->second->members;
-        members.erase(std::remove(members.begin(), members.end(), member), members.end());
+        const auto found = std::find(members.begin(), members.end(), member);
+        if (found != members.end()) members.erase(found);
         if (!members.empty()) return;
         NetBridgeUnbind_nid_no_patch(vport, P2P_DATAGRAMS);
         group = it->second;
@@ -1183,6 +1186,7 @@ bool bind_loopback(NativeSocket native) {
 }
 
 int lan_join(const Sock& socket, std::uint16_t port, bool reuse, std::uint16_t& vport, std::uint16_t& member, std::uint16_t& groupPort) {
+    std::lock_guard join(g_lan_join_mutex);
     member = loopback_port_of(socket.native->value);
     if (member == 0) {
         if (!bind_loopback(socket.native->value)) return native_error();
@@ -1190,22 +1194,23 @@ int lan_join(const Sock& socket, std::uint16_t port, bool reuse, std::uint16_t& 
         if (member == 0) return native_error();
     }
     static std::uint16_t next = LAN_EPHEMERAL_FIRST;
-    std::lock_guard lock(g_lan_mutex);
-    auto& groups = lan_groups();
     for (int attempt = 0; attempt < (port == 0 ? 64 : 1); ++attempt) {
         std::uint16_t candidate = port;
         if (port == 0) {
             candidate = next;
             next = next == 65535 ? LAN_EPHEMERAL_FIRST : static_cast<std::uint16_t>(next + 1);
         }
-        const auto existing = groups.find(candidate);
-        if (existing != groups.end()) {
-            if (port == 0) continue;
-            if (!(reuse && existing->second->reuse)) return NET_EADDRINUSE;
-            existing->second->members.push_back(member);
-            vport = candidate;
-            groupPort = existing->second->port;
-            return 0;
+        {
+            std::lock_guard lock(g_lan_mutex);
+            const auto existing = lan_groups().find(candidate);
+            if (existing != lan_groups().end()) {
+                if (port == 0) continue;
+                if (!(reuse && existing->second->reuse)) return NET_EADDRINUSE;
+                existing->second->members.push_back(member);
+                vport = candidate;
+                groupPort = existing->second->port;
+                return 0;
+            }
         }
         const NativeSocket native = ::socket(AF_INET, SOCK_DGRAM, 0);
         if (native == INVALID_NATIVE_SOCKET) return native_error();
@@ -1226,8 +1231,11 @@ int lan_join(const Sock& socket, std::uint16_t port, bool reuse, std::uint16_t& 
         group->socket = native;
         group->reuse = reuse;
         group->members.push_back(member);
-        group->thread = std::thread(lan_forward, group);
-        groups[candidate] = group;
+        {
+            std::lock_guard lock(g_lan_mutex);
+            group->thread = std::thread(lan_forward, group);
+            lan_groups()[candidate] = group;
+        }
         vport = candidate;
         groupPort = loopback;
         return 0;
@@ -1247,11 +1255,11 @@ int bind_lan(int s, const Sock& socket, std::uint16_t port, std::uint32_t addres
     std::uint16_t vport = 0;
     std::uint16_t member = 0;
     std::uint16_t groupPort = 0;
-    if (const int error = lan_join(socket, port, socket.lan_reuse, vport, member, groupPort)) return error;
+    if (const int error = lan_join(socket, port, socket.lan_reuse_address || socket.lan_reuse_port, vport, member, groupPort)) return error;
     {
         std::lock_guard lk(g_mutex);
         auto it = g_socks.find(s);
-        if (it != g_socks.end() && it->second.native == socket.native) {
+        if (it != g_socks.end() && it->second.native == socket.native && !it->second.lan) {
             it->second.bound = true;
             it->second.lan = true;
             it->second.vport = vport;
@@ -1262,7 +1270,10 @@ int bind_lan(int s, const Sock& socket, std::uint16_t port, std::uint32_t addres
         }
     }
     lan_leave(vport, member);
-    return NET_EBADF;
+    std::lock_guard lk(g_mutex);
+    const auto it = g_socks.find(s);
+    if (it == g_socks.end() || it->second.native != socket.native) return NET_EBADF;
+    return port == 0 ? 0 : NET_EINVAL;
 }
 
 int lan_ensure_bound(int s, Sock& socket) {
@@ -1273,6 +1284,14 @@ int lan_ensure_bound(int s, Sock& socket) {
     if (it == g_socks.end()) return NET_EBADF;
     socket = it->second;
     return 0;
+}
+
+bool lan_guards_host(const Sock& socket, const void* to, std::uint32_t tolen, LanRoute& route) {
+    if (socket.lan || !lan_plain_datagram(socket) || to == nullptr || tolen < 16) return false;
+    const auto* bytes = static_cast<const std::uint8_t*>(to);
+    if (bytes[1] != NET_AF_INET) return false;
+    route = lan_route(load_big32(bytes + 4));
+    return route != LanRoute::Unreachable && lan_active();
 }
 
 bool lan_serves(const Sock& socket, const void* to, std::uint32_t tolen) {
@@ -1899,6 +1918,8 @@ int APS5_VABI sceNetConnect(int s, const void* addr, uint32_t addrlen) {
         return netCall.Ret(0);
     }
     if (lan_serves(socket, addr, addrlen)) return netCall.Ret(connect_lan(s, socket, addr, addrlen));
+    LanRoute guarded = LanRoute::Unreachable;
+    if (lan_guards_host(socket, addr, addrlen, guarded)) return netCall.Ret(fail(NET_ENETUNREACH));
     if (socket.type == NET_SOCK_DGRAM && addr && addrlen >= 2 && static_cast<const std::uint8_t*>(addr)[1] == 0) {
         if (const int error = disconnect_datagram(socket)) return netCall.Ret(error);
         return netCall.Ret(fail(NET_EAFNOSUPPORT));
@@ -2075,6 +2096,8 @@ int64_t APS5_VABI sceNetSendto(int s, const void* buf, size_t len, int flags, co
     if (socket.p2p && socket.type == NET_SOCK_DGRAM_P2P) return netCall.Ret(send_p2p(socket, buf, len, flags, to, tolen));
     if (to && lan_serves(socket, to, tolen)) return netCall.Ret(send_lan(s, socket, buf, len, to, tolen));
     if (!to && socket.lan) return netCall.Ret(send_lan(s, socket, buf, len, nullptr, 0));
+    LanRoute guarded = LanRoute::Unreachable;
+    if (lan_guards_host(socket, to, tolen, guarded)) return netCall.Ret(guarded == LanRoute::Drop ? static_cast<std::int64_t>(len) : fail(NET_ENETUNREACH));
     if (socket.p2p && to) NotImplemented_nid_no_patch("sceNetSendto with a destination on a peer-to-peer stream socket");
 #ifdef __APPLE__
     std::int64_t result;
@@ -2347,7 +2370,8 @@ int APS5_VABI sceNetSetsockopt(int s, int level, int optname, const void* optval
         if (optname == NET_SO_RCVBUF) it->second.rcv_buffer = value;
         if (optname == NET_SO_ONESBCAST) it->second.onesbcast = value;
         if (optname == NET_SO_BROADCAST) it->second.lan_broadcast = value != 0;
-        if (optname == NET_SO_REUSEADDR || optname == NET_SO_REUSEPORT) it->second.lan_reuse = it->second.lan_reuse || value != 0;
+        if (optname == NET_SO_REUSEADDR) it->second.lan_reuse_address = value != 0;
+        if (optname == NET_SO_REUSEPORT) it->second.lan_reuse_port = value != 0;
         if (optname == NET_SO_KEEPALIVE) it->second.keepalive = value != 0 ? NET_SO_KEEPALIVE : 0;
     }
     return netCall.Ret(0);

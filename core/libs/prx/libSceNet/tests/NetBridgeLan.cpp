@@ -8,6 +8,7 @@
 #include <cstdio>
 #include <cstring>
 #include <string>
+#include <thread>
 #include <vector>
 
 namespace {
@@ -20,12 +21,14 @@ constexpr int AfInet = 2;
 constexpr int SockDgram = 2;
 constexpr int SolSocket = 0xFFFF;
 constexpr int SoReuseAddr = 0x4;
+constexpr int SoReusePort = 0x200;
 constexpr int SoBroadcast = 0x20;
 constexpr int SoNbio = 0x1200;
 constexpr int EAccess = 13;
 constexpr int EAgain = 35;
 constexpr int EAddrInUse = 48;
 constexpr int ENetUnreach = 51;
+constexpr int MsgTrunc = 0x10;
 constexpr std::uint32_t Self = 0xC6120001u;
 constexpr std::uint32_t Peer = 0xC6120002u;
 constexpr std::uint32_t OtherPeer = 0xC6120003u;
@@ -226,8 +229,10 @@ void VirtualAddressAndEphemeral(Service& service) {
 
     const int implicit = Open();
     const std::size_t before = service.LiveBinds().size();
+    const std::size_t implicitBefore = service.Datagrams().size();
     Require(SendTo(implicit, {1}, Peer, 7) == 1, "sendto on an unbound socket");
     Require(Service::WaitUntil([&] { return service.LiveBinds().size() == before + 1; }, 5000), "it was bound first");
+    Require(Service::WaitUntil([&] { return service.Datagrams().size() == implicitBefore + 1; }, 5000), "and its datagram was carried");
 
     const int connected = Open();
     Require(Bind(connected, 0, PortC) == 0, "bind");
@@ -273,6 +278,95 @@ void SharedPorts(Service& service) {
     Require(Service::WaitUntil([&] { return service.LiveBinds().empty(); }, 5000), "the last close unbinds");
 }
 
+void ReuseCleared(Service& service) {
+    const int first = Open();
+    const int second = Open();
+    Option(first, SoReuseAddr);
+    Option(second, SoReuseAddr);
+    const int off = 0;
+    Require(sceNetSetsockopt(second, SolSocket, SoReuseAddr, &off, sizeof(off)) == 0, "clear SO_REUSEADDR");
+    Require(Bind(first, 0, PortB) == 0, "bind the first");
+    Require(Bind(second, 0, PortB) < 0 && *sceNetErrnoLoc() == EAddrInUse, "a cleared SO_REUSEADDR no longer shares the port");
+
+    const int third = Open();
+    const int fourth = Open();
+    Option(third, SoReusePort);
+    Option(fourth, SoReusePort);
+    Require(Bind(third, 0, PortC) == 0 && Bind(fourth, 0, PortC) == 0, "SO_REUSEPORT shares a port");
+    Require(BindsOf(service, PortC) == 1, "bound once");
+    Require(sceNetSocketClose(first) == 0 && sceNetSocketClose(second) == 0 && sceNetSocketClose(third) == 0 && sceNetSocketClose(fourth) == 0, "close all");
+    Require(Service::WaitUntil([&] { return service.LiveBinds().empty(); }, 5000), "all virtual ports unbound");
+}
+
+void HostSockets(Service& service) {
+    const int socket = Open();
+    Option(socket, SoBroadcast);
+    Require(Bind(socket, 0x7F000001u, 0) == 0, "bind loopback");
+    Require(service.LiveBinds().empty(), "a loopback socket stays on the host");
+    std::uint8_t name[16]{};
+    std::uint32_t nameLength = sizeof(name);
+    Require(sceNetGetsockname(socket, name, &nameLength) == 0, "getsockname");
+    const std::uint16_t port = static_cast<std::uint16_t>((name[2] << 8) | name[3]);
+    const std::size_t sentBefore = service.Datagrams().size();
+    const Bytes ask = {0x05};
+    Require(Fails(SendTo(socket, ask, LimitedBroadcast, Remote)) == ENetUnreach, "a host socket's limited broadcast never reaches a real network");
+    Require(Fails(SendTo(socket, ask, SubnetBroadcast, Remote)) == ENetUnreach, "nor its subnet broadcast");
+    Require(Fails(SendTo(socket, ask, Peer, Remote)) == ENetUnreach, "nor a datagram to a virtual address");
+    Require(SendTo(socket, ask, 0xE00000FBu, 5353) == 1, "its multicast is dropped without an error");
+    const auto peer = Address(Peer, Remote);
+    Require(sceNetConnect(socket, peer.data(), 16) < 0 && *sceNetErrnoLoc() == ENetUnreach, "connect to a virtual address");
+    Require(SendTo(socket, ask, 0x7F000001u, port) == 1, "loopback still works");
+    std::uint8_t buffer[16]{};
+    std::uint8_t from[16]{};
+    Require(ReceiveWithin(socket, buffer, sizeof(buffer), from) == 1 && buffer[0] == 0x05, "and arrives");
+    Require(service.Datagrams().size() == sentBefore && service.LiveBinds().empty(), "nothing reached the net service");
+    Require(sceNetSocketClose(socket) == 0, "close");
+}
+
+void ConcurrentImplicitBinds(Service& service) {
+    for (int round = 0; round < 8; ++round) {
+        const int socket = Open();
+        const std::size_t before = service.LiveBinds().size();
+        const std::size_t sentBefore = service.Datagrams().size();
+        std::int64_t otherSent = -1;
+        std::thread other([&] { otherSent = SendTo(socket, {1}, Peer, 7); });
+        const std::int64_t sent = SendTo(socket, {2}, Peer, 7);
+        other.join();
+        Require(sent == 1 && otherSent == 1, "both first sends succeed");
+        Require(Service::WaitUntil([&] { return service.Datagrams().size() == sentBefore + 2; }, 5000), "both sends carried");
+        Require(Service::WaitUntil([&] { return service.LiveBinds().size() == before + 1; }, 5000), "two first sends at once bind the socket once");
+        Require(sceNetSocketClose(socket) == 0, "close");
+        Require(Service::WaitUntil([&] { return service.LiveBinds().size() == before; }, 5000), "close unbinds it");
+    }
+}
+
+void ReceiveMessage(Service& service) {
+    const int socket = Open();
+    Require(Bind(socket, 0, PortA) == 0, "bind");
+    Require(Service::WaitUntil([&] { return BindsOf(service, PortA) == 1; }, 5000), "bound");
+    Require(service.InjectDatagram(Peer, PortA, 6000, {1, 2, 3, 4, 5, 6}), "deliver");
+    std::uint8_t head[2]{};
+    std::uint8_t tail[2]{};
+    NetIovec vectors[2] = {{head, sizeof(head)}, {tail, sizeof(tail)}};
+    std::uint8_t name[16]{};
+    NetMsghdr message{};
+    std::int64_t got = -1;
+    Require(Service::WaitUntil([&] {
+        message = {};
+        message.name = name;
+        message.name_length = sizeof(name);
+        message.iov = vectors;
+        message.iov_length = 2;
+        got = sceNetRecvmsg(socket, &message, 0);
+        return got >= 0;
+    }, 5000), "recvmsg");
+    Require(got == 4 && head[0] == 1 && head[1] == 2 && tail[0] == 3 && tail[1] == 4, "recvmsg fills the vectors in order");
+    Require((message.flags & MsgTrunc) != 0, "and reports the cut");
+    Require(message.name_length == 16 && std::memcmp(name, Address(Peer, 6000).data(), 16) == 0, "recvmsg names the peer");
+    Require(sceNetSocketClose(socket) == 0, "close");
+    Require(Service::WaitUntil([&] { return service.LiveBinds().empty(); }, 5000), "unbound");
+}
+
 void Ended(Service& service) {
     SetAddress(service, 0);
     const int socket = Open();
@@ -298,6 +392,10 @@ int main() {
     Broadcasts(service);
     VirtualAddressAndEphemeral(service);
     SharedPorts(service);
+    ReuseCleared(service);
+    HostSockets(service);
+    ConcurrentImplicitBinds(service);
+    ReceiveMessage(service);
     Ended(service);
     std::puts("net bridge lan: ok");
     return 0;
