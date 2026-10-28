@@ -4,6 +4,7 @@
 #include "prx/libSceAgcDriver/Graphics/include/Pipeline.hpp"
 #include "prx/libSceAgcDriver/Graphics/include/Draw.hpp"
 #include "prx/libSceAgcDriver/Graphics/include/PipelineLibrary.hpp"
+#include "prx/libSceAgcDriver/Graphics/include/PipelineWatch.hpp"
 #include "prx/libSceAgcDriver/Graphics/include/PipelineJournal.hpp"
 #include "prx/libSceAgcDriver/Graphics/include/DepthSurface.hpp"
 #include "prx/libSceAgcDriver/Graphics/include/PipelineSpecialization.hpp"
@@ -720,6 +721,14 @@ Pipeline::Pipeline(const Context& context, const State& state, const VertexInput
         pipelineInfo.renderPass = renderPass;
         if (dynamicRendering) pipelineInfo.pNext = &rendering;
         timing.Mark("modules_and_state");
+        const PipelineWatch::Scope watch(prebuilding ? "graphics prebuild" : "graphics", [&] {
+            std::vector<PipelineWatchStage> described;
+            for (const auto& shader : shaders) {
+                const auto identity = shader.program->Identity();
+                described.push_back({static_cast<std::uint32_t>(VulkanStage(shader.stage)), static_cast<std::uint32_t>(shader.program->spirv.size()), identity.low, identity.high, static_cast<std::uint32_t>(shader.program->specialization.size()), static_cast<std::uint32_t>(shader.program->bindings.size()), shader.program->imageTableShader});
+            }
+            return described;
+        });
         if (prebuilding && !libraries) {
             for (const auto module : _modules) context.Function<PFN_vkDestroyShaderModule>("vkDestroyShaderModule")(context.device, module, nullptr);
             _modules.clear();
