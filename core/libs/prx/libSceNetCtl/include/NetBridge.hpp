@@ -75,6 +75,16 @@ struct NetBridgePushEventView {
     const char* const* extendedValues;
 };
 
+struct NetBridgeSharePadView {
+    std::uint32_t buttons;
+    std::uint8_t sticks[4];
+    std::uint8_t l2;
+    std::uint8_t r2;
+    std::uint8_t mode;
+    std::uint8_t slot;
+    std::uint64_t serial;
+};
+
 using NetBridgePushHandler = void (*)(const NetBridgePushEventView* event, void* userArg);
 using NetBridgePushPump = void (*)(void* userArg);
 
@@ -109,6 +119,12 @@ void NetBridgeUnregisterPushHandler_nid_no_patch(int registrationId);
 int NetBridgeRegisterPushPump_nid_no_patch(NetBridgePushPump pump, void* userArg);
 void NetBridgeUnregisterPushPump_nid_no_patch(int registrationId);
 void NetBridgeDeliverPushEvents_nid_no_patch(void);
+int NetBridgeShareActive_nid_no_patch(void);
+int NetBridgeShareWantsFrame_nid_no_patch(void);
+int NetBridgeShareSubmitFrame_nid_no_patch(const void* bgra, std::uint32_t width, std::uint32_t height, std::uint32_t stride, std::uint64_t presentUs, std::uint32_t frame);
+int NetBridgeShareSubmitAudio_nid_no_patch(const float* stereo, std::uint32_t frames);
+int NetBridgeSharePad_nid_no_patch(NetBridgeSharePadView* out);
+int NetBridgeShareOverride_nid_no_patch(std::uint8_t trigger);
 int NetBridgeObserveEnabled_nid_no_patch(void);
 void NetBridgeObserve_nid_no_patch(const NetBridgeObservation* observation);
 void NetBridgeObserveNow_nid_no_patch(const NetBridgeObservation* observation);

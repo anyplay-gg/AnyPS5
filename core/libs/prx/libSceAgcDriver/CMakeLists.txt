@@ -418,6 +418,7 @@ add_shader_recompiler(shader_recompiler_agc_driver libc
 )
 
 target_link_libraries(libSceAgcDriver PRIVATE
+        libSceNetCtl
         shader_recompiler_agc_driver
         decoder_png
         SDL2-static
@@ -3108,7 +3109,8 @@ if(BUILD_TESTING)
                 $<TARGET_FILE:agc_guest_memory_lifetime_fixture>
                 $<TARGET_FILE:libkernel>
                 $<TARGET_FILE:libc>
-                $<TARGET_FILE:libSceAgcDriver>)
+                $<TARGET_FILE:libSceAgcDriver>
+                $<TARGET_FILE:libSceNetCtl>)
         set_tests_properties(agc_driver_guest_memory_lifetime_converted PROPERTIES
                 ENVIRONMENT "ANYPS5_NO_SHADER_CACHE=1;APS5_PIN_WAIT_MS=1000" SKIP_RETURN_CODE 77 TIMEOUT 30)
     endif()

@@ -722,6 +722,8 @@ private:
                 std::lock_guard lock(mutex);
                 unbinds.emplace_back(vport, transport);
                 std::erase_if(liveBinds, [&](const BindCall& bind) { return bind.vport == vport && bind.transport == transport; });
+            } else if ((kind & 0x8000) != 0 && kind != 0x8000) {
+                continue;
             } else if (kind == 0x8000) {
                 unsupported.fetch_add(1);
             } else if (request != 0) {

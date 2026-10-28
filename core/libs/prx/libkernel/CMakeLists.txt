@@ -141,7 +141,7 @@ if(BUILD_TESTING)
         add_test(NAME exec_arguments COMMAND ${Python3_EXECUTABLE}
             ${CMAKE_SOURCE_DIR}/core/relinker/relinker/tests/test_exec_arguments.py
             $<TARGET_FILE:relinker> $<TARGET_FILE:guest_exec_host>
-            $<TARGET_FILE:libSceAgcDriver> $<TARGET_FILE:libc> $<TARGET_FILE:libkernel> ${CMAKE_CXX_COMPILER})
+            $<TARGET_FILE:libSceAgcDriver> $<TARGET_FILE:libSceNetCtl> $<TARGET_FILE:libc> $<TARGET_FILE:libkernel> ${CMAKE_CXX_COMPILER})
         set_tests_properties(exec_arguments PROPERTIES TIMEOUT 30)
         add_asan_test_options(exec_arguments verify_asan_link_order=0)
     endif()

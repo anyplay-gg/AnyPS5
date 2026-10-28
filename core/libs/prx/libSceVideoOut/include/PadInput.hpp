@@ -4,6 +4,7 @@
 #include "SDL_events.h"
 #include "SDL_gamecontroller.h"
 #include "prx/libScePad/include/KeyboardMouse.hpp"
+#include "prx/libScePad/include/ShareOverrideChord.hpp"
 #include "prx/libScePad/include/PadState.hpp"
 #include "prx/libScePad/include/Pad.hpp"
 #include "prx/libSceVideoOut/include/PadOutputPacing.hpp"
@@ -53,6 +54,7 @@ private:
     Pad::KeyboardMouse keyboardMouse;
     std::array<ControllerSlot, PAD_MAX_CONTROLLERS> slots{};
     VideoOutTelemetry::PadChangeFilter telemetryFilter;
+    Pad::ShareOverrideChord shareChord;
 };
 
 #endif
