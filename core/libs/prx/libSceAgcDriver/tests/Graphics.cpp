@@ -10310,7 +10310,16 @@ void uintTargetTests() {
     Require(uint16.color.packing == ColorExportPacking::None && uint16.color.uintExport, "a UINT16_ABGR export into a UINT target was retyped twice");
     auto halves = queue;
     halves.context[0x1c5] = 4u;
-    expectFailure([&] { static_cast<void>(AgcDriver::Graphics::DecodeState(halves)); }, "color export format 4 into an unsigned integer target is unsupported");
+    const auto halfState = AgcDriver::Graphics::DecodeState(halves);
+    Require(halfState.color.format == VK_FORMAT_R32_UINT && halfState.color.packing == ColorExportPacking::None && !halfState.color.uintExport && halfState.color.integerTarget, "an FP16_ABGR export into a UINT target was not left as a plain color export");
+    Require(!halfState.blends.at(0).blendEnable && halfState.blends.at(0).colorWriteMask != 0, "blending into a UINT target with an FP16_ABGR export was not dropped");
+    Require(AgcDriver::Graphics::ExportPackings(halfState)[0] == ColorExportPacking::None, "an FP16_ABGR export into a UINT target carried the unsigned integer packing");
+    for (const std::uint32_t format : {5u, 6u}) {
+        auto other = queue;
+        other.context[0x1c5] = format;
+        const auto otherState = AgcDriver::Graphics::DecodeState(other);
+        Require(otherState.color.packing == ColorExportPacking::None && otherState.color.integerTarget && !otherState.blends.at(0).blendEnable, "a 16-bit float, unorm or snorm export into a UINT target was refused");
+    }
     auto unorm = queue;
     unorm.context[0x31c] = (unorm.context.at(0x31c) & ~0x1f7cu) | (4u << 2u) | (7u << 8u);
     Require(AgcDriver::Graphics::DecodeState(unorm).color.packing == ColorExportPacking::None, "a 32-bit float target got the unsigned integer export packing");
