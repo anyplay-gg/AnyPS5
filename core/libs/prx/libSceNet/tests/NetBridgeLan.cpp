@@ -370,7 +370,7 @@ void ReceiveMessage(Service& service) {
 void Ended(Service& service) {
     SetAddress(service, 0);
     const int socket = Open();
-    Require(Bind(socket, 0, PortB) == 0, "bind after the session ended");
+    Require(Bind(socket, 0, 0) == 0, "bind after the session ended");
     Require(service.LiveBinds().empty(), "the host handles it again");
     Require(sceNetSocketClose(socket) == 0, "close");
 }
