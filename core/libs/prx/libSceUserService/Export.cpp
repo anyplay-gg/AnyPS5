@@ -8,6 +8,7 @@
 #include <cstring>
 #include <deque>
 #include <mutex>
+#include <string>
 #include "prx/libSceUserService/UserService.hpp"
 #include "prx/libSceNetCtl/include/NetBridge.hpp"
 
@@ -23,6 +24,72 @@ struct UserEvent {
 
 std::deque<UserEvent> eventQueue;
 std::array<bool, USER_SERVICE_MAX_USERS> userConnected{true, false, false, false};
+std::array<bool, USER_SERVICE_MAX_USERS> hotplugConnected{true, false, false, false};
+std::array<bool, USER_SERVICE_MAX_USERS> guestClaimed{};
+std::array<std::string, USER_SERVICE_MAX_USERS> guestNames;
+
+std::string SanitizedUserName(const char* name) {
+ std::string result;
+ if (name == nullptr) {
+  return result;
+ }
+ const auto* bytes = reinterpret_cast<const unsigned char*>(name);
+ std::size_t i = 0;
+ while (bytes[i] != 0) {
+  std::size_t length = 1;
+  if (bytes[i] >= 0xF0 && bytes[i] <= 0xF4) {
+   length = 4;
+  } else if (bytes[i] >= 0xE0) {
+   length = bytes[i] <= 0xEF ? 3 : 0;
+  } else if (bytes[i] >= 0xC2) {
+   length = bytes[i] <= 0xDF ? 2 : 0;
+  } else if (bytes[i] >= 0x80) {
+   length = 0;
+  }
+  bool valid = length != 0;
+  for (std::size_t k = 1; valid && k < length; ++k) {
+   valid = bytes[i + k] != 0 && (bytes[i + k] & 0xC0) == 0x80;
+  }
+  if (!valid) {
+   ++i;
+   continue;
+  }
+  const bool control = length == 1 && (bytes[i] < 0x20 || bytes[i] == 0x7F);
+  if (!control && result.size() + length <= USER_SERVICE_MAX_USER_NAME_LENGTH) {
+   result.append(name + i, length);
+  }
+  i += length;
+ }
+ const auto first = result.find_first_not_of(' ');
+ if (first == std::string::npos) {
+  return {};
+ }
+ return result.substr(first, result.find_last_not_of(' ') - first + 1);
+}
+
+void ReconcileUser(int userIndex) {
+ const bool connected = hotplugConnected[userIndex] || guestClaimed[userIndex];
+ if (userConnected[userIndex] == connected) {
+  return;
+ }
+ userConnected[userIndex] = connected;
+ if (!initialized.load()) {
+  return;
+ }
+ constexpr std::uint32_t EventTypeLogin = 0;
+ constexpr std::uint32_t EventTypeLogout = 1;
+ const std::uint32_t eventType = connected ? EventTypeLogin : EventTypeLogout;
+ const int userId = USER_SERVICE_INITIAL_USER_ID + userIndex;
+ for (auto it = eventQueue.begin(); it != eventQueue.end(); ++it) {
+  if (it->userId == userId) {
+   if (it->eventType != eventType) {
+    eventQueue.erase(it);
+   }
+   return;
+  }
+ }
+ eventQueue.push_back({eventType, userId});
+}
 
 int UserIndex(int userId) {
     if (userId >= USER_SERVICE_INITIAL_USER_ID && userId < USER_SERVICE_INITIAL_USER_ID + USER_SERVICE_MAX_USERS) {
@@ -101,28 +168,25 @@ extern "C" {
 void UserServiceSetUserConnected_nid_postfix(int userIndex, bool connected) {
     if (userIndex <= 0 || userIndex >= USER_SERVICE_MAX_USERS) return;
     std::lock_guard lock(userMutex);
-    if (userConnected[userIndex] != connected) {
-        userConnected[userIndex] = connected;
-        if (initialized.load()) {
-            constexpr std::uint32_t EventTypeLogin = 0;
-            constexpr std::uint32_t EventTypeLogout = 1;
-            const std::uint32_t eventType = connected ? EventTypeLogin : EventTypeLogout;
-            const int userId = USER_SERVICE_INITIAL_USER_ID + userIndex;
-            bool collapsed = false;
-            for (auto it = eventQueue.begin(); it != eventQueue.end(); ++it) {
-                if (it->userId == userId) {
-                    if (it->eventType != eventType) {
-                        eventQueue.erase(it);
-                    }
-                    collapsed = true;
-                    break;
-                }
-            }
-            if (!collapsed) {
-                eventQueue.push_back({eventType, userId});
-            }
-        }
-    }
+    hotplugConnected[userIndex] = connected;
+    ReconcileUser(userIndex);
+}
+
+void UserServiceSetGuestUser_nid_postfix(int userIndex, const char* name) {
+    if (userIndex <= 0 || userIndex >= USER_SERVICE_MAX_USERS) return;
+    std::string clean = SanitizedUserName(name);
+    std::lock_guard lock(userMutex);
+    guestNames[userIndex] = std::move(clean);
+    guestClaimed[userIndex] = true;
+    ReconcileUser(userIndex);
+}
+
+void UserServiceClearGuestUser_nid_postfix(int userIndex) {
+    if (userIndex <= 0 || userIndex >= USER_SERVICE_MAX_USERS) return;
+    std::lock_guard lock(userMutex);
+    guestClaimed[userIndex] = false;
+    guestNames[userIndex].clear();
+    ReconcileUser(userIndex);
 }
 
 int APS5_VABI sceUserServiceGetAccessibilityChatTranscription(int user_id, int32_t* chat_transcription) {
@@ -247,7 +311,14 @@ int APS5_VABI sceUserServiceGetUserName(int user_id, char* name, size_t size) {
   std::memset(name, 0, size);
   return USER_SERVICE_ERROR_BUFFER_TOO_SHORT;
  }
- std::strncpy(name, USER_SERVICE_USER_NAMES[index], size);
+ std::string guestName;
+ {
+  std::lock_guard lock(userMutex);
+  if (guestClaimed[index]) {
+   guestName = guestNames[index];
+  }
+ }
+ std::strncpy(name, guestName.empty() ? USER_SERVICE_USER_NAMES[index] : guestName.c_str(), size);
  return USER_SERVICE_OK;
 }
 
@@ -353,6 +424,13 @@ int APS5_VABI sceUserServiceGetNpAccountId(int user_id, uint64_t* account_id) {
  const int index = UserIndex(user_id);
  if (account_id == nullptr || index < 0) {
   return USER_SERVICE_ERROR_INVALID_ARGUMENT;
+ }
+ {
+  std::lock_guard lock(userMutex);
+  if (guestClaimed[index]) {
+   *account_id = 0;
+   return USER_SERVICE_OK;
+  }
  }
  NetBridgeStateView view{};
  if (NetBridgeEnabled_nid_no_patch() != 0) {
