@@ -1,25 +1,48 @@
 name: Sync with upstream
 
-# Keeps one open pull request, branch sync/upstream, that merges boykopovar/AnyPS5 main into this
-# fork. The merge is a merge commit and the branch is only ever pushed to normally. Nothing here
-# merges the pull request: a person reads it, the build runs on it, and then it is merged.
+# Keeps one open pull request that merges boykopovar/AnyPS5 main into this fork. The branch is
+# sync/upstream-<date>, cut from main, and the merge is a merge commit. The job runs daily and on
+# demand. Nothing here merges the pull request: a person reads it, the builds run on it, and then it
+# is merged (docs/dev/FORK.md lists what the fork changes and why).
 #
-# A pull request opened with the workflow token starts no pull_request workflows, so this job
-# dispatches the Windows build for it. Close and reopen the pull request to run the conventions
-# check. When upstream and this fork conflict, no branch is pushed and the issue "Sync with
-# upstream needs a manual merge" lists the files (when the repository has no issues the run fails
-# and the job summary lists them).
+# - Clean merge: the branch is pushed, the pull request is opened or refreshed, and the Linux build
+#   (GitHub's hosted runner) and the Windows build are dispatched for it. A pull request opened with
+#   the workflow token starts no pull_request workflows, so this job starts the build itself.
+# - Conflict: the pull request is opened as a draft. The branch holds the merge with the conflict
+#   markers committed, and the pull request lists the conflicting files. No build is started.
+# - A branch that a person has pushed to is never rewritten: later runs merge on top of it, and
+#   only report when that conflicts.
+# - After the merge the job checks that docs/dev/FORK.md still describes every place the fork
+#   differs from upstream, and fails when it does not.
 
 on:
   schedule:
     - cron: "17 4 * * *"
   workflow_dispatch:
+    inputs:
+      build:
+        description: Start the Linux and Windows builds for the pull request
+        required: false
+        default: true
+        type: boolean
+      hosted:
+        description: Run the Linux build on GitHub's hosted runner
+        required: false
+        default: true
+        type: boolean
+      base:
+        description: Branch to merge upstream into and to open the pull request against
+        required: false
+        default: main
+        type: string
+      prefix:
+        description: Branch name prefix of the sync branch, the date is appended
+        required: false
+        default: sync/upstream
+        type: string
 
 permissions:
-  contents: write
-  pull-requests: write
-  issues: write
-  actions: write
+  contents: read
 
 concurrency:
   group: sync-upstream
@@ -29,99 +52,107 @@ jobs:
   sync:
     if: github.repository == 'anyplaynet/AnyPS5'
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
+    permissions:
+      contents: write
+      pull-requests: write
+      actions: write
     env:
       GH_TOKEN: ${{ github.token }}
-      BRANCH: sync/upstream
+      BASE: ${{ inputs.base || 'main' }}
+      PREFIX: ${{ inputs.prefix || 'sync/upstream' }}
+      BUILD: ${{ github.event_name == 'schedule' && 'true' || format('{0}', inputs.build) }}
+      HOSTED: ${{ github.event_name == 'schedule' && 'true' || format('{0}', inputs.hosted) }}
     steps:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
-      - name: Merge upstream main into the sync branch
-        id: merge
+      - name: Fetch upstream and copy the tooling
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git remote add upstream https://github.com/boykopovar/AnyPS5.git
           git fetch --no-tags upstream main
-          behind=$(git rev-list --count origin/main..upstream/main)
-          echo "behind=$behind" >> "$GITHUB_OUTPUT"
-          if [ "$behind" = "0" ]; then echo "main already contains upstream main"; echo "changed=false" >> "$GITHUB_OUTPUT"; exit 0; fi
-          if git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null; then
-            git checkout -B "$BRANCH" "origin/$BRANCH"
-          else
-            git checkout -B "$BRANCH" origin/main
-          fi
-          before=$(git rev-parse HEAD)
-          if ! git merge --no-edit origin/main; then
-            git diff --name-only --diff-filter=U > conflicts.txt
-            git merge --abort
-            echo "conflict=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          if ! git merge --no-edit -m "chore(sync): merge upstream boykopovar/AnyPS5 main" upstream/main; then
-            git diff --name-only --diff-filter=U > conflicts.txt
-            git merge --abort
-            echo "conflict=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          if [ "$(git rev-parse HEAD)" = "$before" ]; then echo "changed=false" >> "$GITHUB_OUTPUT"; exit 0; fi
-          git push origin "$BRANCH"
-          echo "changed=true" >> "$GITHUB_OUTPUT"
-      - name: Report a conflict
-        if: steps.merge.outputs.conflict == 'true'
+          mkdir -p "$RUNNER_TEMP/tools"
+          cp tools/check_main_sync.py tools/fork_divergence.py tools/sync_upstream.py "$RUNNER_TEMP/tools/"
+      - name: Find the open sync pull request
+        id: find
         run: |
-          title="Sync with upstream needs a manual merge"
-          {
-            echo "Merging boykopovar/AnyPS5 main into main conflicts in these files:"
-            echo
-            sed 's/^/- `/; s/$/`/' conflicts.txt
-            echo
-            echo "Merge upstream/main into a branch by hand, resolve these, and open the pull request. This issue is updated by the next scheduled run."
-          } > body.md
-          cat body.md >> "$GITHUB_STEP_SUMMARY"
-          number=$(gh issue list --state open --search "\"$title\" in:title" --json number --jq '.[0].number // empty' 2>/dev/null || true)
-          if [ -n "$number" ]; then gh issue comment "$number" --body-file body.md
-          elif ! gh issue create --title "$title" --body-file body.md; then echo "::error::upstream conflicts with main in the files listed in the job summary; the repository has no issues to carry this, so the run fails"; exit 1; fi
-          echo "::warning::upstream conflicts with main, see the issue or the job summary"
-      - name: Open or update the pull request
-        if: steps.merge.outputs.changed == 'true'
+          gh api "repos/$GITHUB_REPOSITORY/pulls?state=open&base=$BASE&per_page=100" > "$RUNNER_TEMP/prs.json"
+          jq --arg prefix "$PREFIX" --arg repo "$GITHUB_REPOSITORY" '[.[] | select(.head.repo.full_name == $repo and (.head.ref | startswith($prefix)))][0] // {}' "$RUNNER_TEMP/prs.json" > "$RUNNER_TEMP/found.json"
+          echo "branch=$(jq -r '.head.ref // empty' "$RUNNER_TEMP/found.json")" >> "$GITHUB_OUTPUT"
+          echo "draft=$(jq -r '.draft // false' "$RUNNER_TEMP/found.json")" >> "$GITHUB_OUTPUT"
+      - name: Merge upstream into the sync branch
+        id: merge
         env:
-          behind: ${{ steps.merge.outputs.behind }}
+          EXISTING: ${{ steps.find.outputs.branch }}
         run: |
-          number=$(gh pr list --head "$BRANCH" --state open --json number --jq '.[0].number // empty')
-          cat > body.md <<EOF
-          ### What
-          Merges boykopovar/AnyPS5 main into the fork with a merge commit. When this was opened main was $behind commits behind upstream. The job refreshes this pull request every day while it is open.
-
-          ### Tested
-          Not tested when opened. The Windows build is dispatched for this pull request by the sync job; read its result before merging, and close and reopen the pull request to run the conventions check.
-
-          ### Checklist
-          - [x] Based on current \`main\`; no other open PR implements the same functions
-          - [x] One topic per PR; follow-ups go in a new PR
-          - [x] No comments in code except technical debt
-          - [x] Unimplemented paths throw (\`NotImplemented_nid_no_patch\`); silent stubs are listed under Silent stubs in their library's technical debt file
-          - [x] No notes, investigation \`.md\` files or images added to the repository
-          - [x] New third-party code is a submodule built from source
-          - [x] Generic behaviour, not specific to one title
-          - [x] Depends on: none
-          - [x] Fixes: none
-          - [x] Unblocks: none
-          - [x] GPUs tested: n/a
-          - [x] AI-assisted: no
-          EOF
+          python3 "$RUNNER_TEMP/tools/sync_upstream.py" --main "origin/$BASE" --prefix "$PREFIX" --date "$(date -u +%F)" --existing "$EXISTING" --out "$RUNNER_TEMP/sync"
+          for key in status branch push force old title draft sha; do
+            echo "$key=$(jq -r ".$key" "$RUNNER_TEMP/sync/state.json")" >> "$GITHUB_OUTPUT"
+          done
+          cat "$RUNNER_TEMP/sync/body.md" >> "$GITHUB_STEP_SUMMARY"
+      - name: Push the sync branch
+        if: steps.merge.outputs.push == 'true'
+        env:
+          SYNC_BRANCH: ${{ steps.merge.outputs.branch }}
+          FORCE: ${{ steps.merge.outputs.force }}
+          OLD: ${{ steps.merge.outputs.old }}
+        run: |
+          push() {
+            if [ "$FORCE" = "true" ]; then
+              git push --force-with-lease="$SYNC_BRANCH:$OLD" origin "$SYNC_BRANCH"
+            else
+              git push origin "$SYNC_BRANCH"
+            fi
+          }
+          if push 2> "$RUNNER_TEMP/push.err"; then exit 0; fi
+          cat "$RUNNER_TEMP/push.err"
+          if ! grep -q 'without `workflows` permission' "$RUNNER_TEMP/push.err"; then exit 1; fi
+          echo "::warning::upstream changed workflow files, which the workflow token cannot push; the branch keeps the fork's version of them"
+          python3 "$RUNNER_TEMP/tools/sync_upstream.py" --strip-workflows --main "origin/$BASE" --date "$(date -u +%F)" --out "$RUNNER_TEMP/sync"
+          push
+      - name: Open or update the pull request
+        id: pr
+        if: steps.merge.outputs.status != 'none'
+        env:
+          SYNC_BRANCH: ${{ steps.merge.outputs.branch }}
+          TITLE: ${{ steps.merge.outputs.title }}
+          DRAFT: ${{ steps.merge.outputs.draft }}
+          WAS_DRAFT: ${{ steps.find.outputs.draft }}
+        run: |
+          number=$(gh api "repos/$GITHUB_REPOSITORY/pulls?state=open&base=$BASE&head=$GITHUB_REPOSITORY_OWNER:$SYNC_BRANCH" --jq '.[0].number // empty')
           if [ -z "$number" ]; then
-            if ! number=$(gh pr create --head "$BRANCH" --base main --title "chore(sync): sync fork with upstream boykopovar/AnyPS5 main" --body-file body.md | grep -o '[0-9]*$'); then
+            if ! number=$(gh api --method POST "repos/$GITHUB_REPOSITORY/pulls" -f head="$SYNC_BRANCH" -f base="$BASE" -f title="$TITLE" -F body=@"$RUNNER_TEMP/sync/body.md" -F draft="$DRAFT" --jq .number); then
               {
-                echo "The branch $BRANCH is pushed and merges upstream main, but this workflow could not open the pull request. Open it here: https://github.com/$GITHUB_REPOSITORY/compare/main...$BRANCH?expand=1"
+                echo "The branch $SYNC_BRANCH is pushed, but this workflow could not open the pull request. Open it here: https://github.com/$GITHUB_REPOSITORY/compare/$BASE...$SYNC_BRANCH?expand=1"
                 echo
                 echo "The organisation setting Actions > General > Allow GitHub Actions to create and approve pull requests lets this job open it itself."
               } >> "$GITHUB_STEP_SUMMARY"
-              echo "::warning::the sync branch is pushed, open the pull request from the link in the job summary"
-              exit 0
+              echo "::error::could not open the pull request, see the job summary"
+              exit 1
             fi
           else
-            gh pr edit "$number" --body-file body.md
+            gh api --method PATCH "repos/$GITHUB_REPOSITORY/pulls/$number" -f title="$TITLE" -F body=@"$RUNNER_TEMP/sync/body.md" --silent
+            if [ "$DRAFT" = "true" ] && [ "$WAS_DRAFT" != "true" ]; then gh pr ready "$number" --undo || echo "::warning::could not turn the pull request into a draft"; fi
+            if [ "$DRAFT" != "true" ] && [ "$WAS_DRAFT" = "true" ]; then gh pr ready "$number" || echo "::warning::could not mark the pull request ready"; fi
           fi
-          gh workflow run build.yml -f pr="$number" -f linux=false
+          echo "number=$number" >> "$GITHUB_OUTPUT"
+          echo "Pull request: https://github.com/$GITHUB_REPOSITORY/pull/$number" >> "$GITHUB_STEP_SUMMARY"
+      - name: Start the builds
+        if: steps.merge.outputs.status == 'clean' && steps.merge.outputs.push == 'true' && steps.pr.outputs.number != '' && env.BUILD == 'true'
+        env:
+          PR_NUMBER: ${{ steps.pr.outputs.number }}
+        run: gh workflow run build.yml --ref "$BASE" -f pr="$PR_NUMBER" -f hosted="$HOSTED"
+      - name: Check the fork divergence table
+        if: steps.merge.outputs.status == 'clean'
+        shell: bash
+        env:
+          SYNC_BRANCH: ${{ steps.merge.outputs.branch }}
+        run: |
+          git checkout -q "$SYNC_BRANCH"
+          ignore=()
+          while read -r file; do
+            if [ -n "$file" ]; then ignore+=(--ignore "$file"); fi
+          done < <(python3 "$RUNNER_TEMP/tools/sync_upstream.py" --list-stripped --main "origin/$BASE")
+          python3 "$RUNNER_TEMP/tools/fork_divergence.py" --upstream upstream/main --head "$SYNC_BRANCH" "${ignore[@]}" | tee -a "$GITHUB_STEP_SUMMARY"

@@ -245,4 +245,244 @@ int APS5_VABI sceNpMatching2Terminate(void) {
     return netCall.Ret(0);
 }
 
+int APS5_VABI sceNpMatching2AbortContextStart(void) {
+    NetBridgeCall netCall("libSceNpMatching2", __func__);
+    NotImplemented_nid_no_patch(__func__);
+    return netCall.Ret(0);
+}
+
+int APS5_VABI sceNpMatching2CreateContextA(void) {
+    NetBridgeCall netCall("libSceNpMatching2", __func__);
+    NotImplemented_nid_no_patch(__func__);
+    return netCall.Ret(0);
+}
+
+int APS5_VABI sceNpMatching2CreateContextInternal(void) {
+    NetBridgeCall netCall("libSceNpMatching2", __func__);
+    NotImplemented_nid_no_patch(__func__);
+    return netCall.Ret(0);
+}
+
+int APS5_VABI sceNpMatching2CreateJoinRoomA(void) {
+    NetBridgeCall netCall("libSceNpMatching2", __func__);
+    NotImplemented_nid_no_patch(__func__);
+    return netCall.Ret(0);
+}
+
+int APS5_VABI sceNpMatching2GetLobbyInfoList(void) {
+    NetBridgeCall netCall("libSceNpMatching2", __func__);
+    NotImplemented_nid_no_patch(__func__);
+    return netCall.Ret(0);
+}
+
+int APS5_VABI sceNpMatching2GetLobbyMemberDataInternal(void) {
+    NetBridgeCall netCall("libSceNpMatching2", __func__);
+    NotImplemented_nid_no_patch(__func__);
+    return netCall.Ret(0);
+}
+
+int APS5_VABI sceNpMatching2GetLobbyMemberDataInternalList(void) {
+    NetBridgeCall netCall("libSceNpMatching2", __func__);
+    NotImplemented_nid_no_patch(__func__);
+    return netCall.Ret(0);
+}
+
+int APS5_VABI sceNpMatching2GetMemoryInfo(void) {
+    NetBridgeCall netCall("libSceNpMatching2", __func__);
+    NotImplemented_nid_no_patch(__func__);
+    return netCall.Ret(0);
+}
+
+int APS5_VABI sceNpMatching2GetRoomJoinedSlotMaskLocal(void) {
+    NetBridgeCall netCall("libSceNpMatching2", __func__);
+    NotImplemented_nid_no_patch(__func__);
+    return netCall.Ret(0);
+}
+
+int APS5_VABI sceNpMatching2GetRoomMemberDataExternalList(void) {
+    NetBridgeCall netCall("libSceNpMatching2", __func__);
+    NotImplemented_nid_no_patch(__func__);
+    return netCall.Ret(0);
+}
+
+int APS5_VABI sceNpMatching2GetRoomMemberIdListLocal(void) {
+    NetBridgeCall netCall("libSceNpMatching2", __func__);
+    NotImplemented_nid_no_patch(__func__);
+    return netCall.Ret(0);
+}
+
+int APS5_VABI sceNpMatching2GetRoomPasswordLocal(void) {
+    NetBridgeCall netCall("libSceNpMatching2", __func__);
+    NotImplemented_nid_no_patch(__func__);
+    return netCall.Ret(0);
+}
+
+int APS5_VABI sceNpMatching2GetSignalingOptParamLocal(void) {
+    NetBridgeCall netCall("libSceNpMatching2", __func__);
+    NotImplemented_nid_no_patch(__func__);
+    return netCall.Ret(0);
+}
+
+int APS5_VABI sceNpMatching2GetSslMemoryInfo(void) {
+    NetBridgeCall netCall("libSceNpMatching2", __func__);
+    NotImplemented_nid_no_patch(__func__);
+    return netCall.Ret(0);
+}
+
+int APS5_VABI sceNpMatching2GetUserInfoListA(void) {
+    NetBridgeCall netCall("libSceNpMatching2", __func__);
+    NotImplemented_nid_no_patch(__func__);
+    return netCall.Ret(0);
+}
+
+int APS5_VABI sceNpMatching2GetWorldIdArrayForAllServers(void) {
+    NetBridgeCall netCall("libSceNpMatching2", __func__);
+    NotImplemented_nid_no_patch(__func__);
+    return netCall.Ret(0);
+}
+
+int APS5_VABI sceNpMatching2GrantRoomOwner(void) {
+    NetBridgeCall netCall("libSceNpMatching2", __func__);
+    NotImplemented_nid_no_patch(__func__);
+    return netCall.Ret(0);
+}
+
+int APS5_VABI sceNpMatching2JoinLobby(void) {
+    NetBridgeCall netCall("libSceNpMatching2", __func__);
+    NotImplemented_nid_no_patch(__func__);
+    return netCall.Ret(0);
+}
+
+int APS5_VABI sceNpMatching2JoinRoomA(void) {
+    NetBridgeCall netCall("libSceNpMatching2", __func__);
+    NotImplemented_nid_no_patch(__func__);
+    return netCall.Ret(0);
+}
+
+int APS5_VABI sceNpMatching2LeaveLobby(void) {
+    NetBridgeCall netCall("libSceNpMatching2", __func__);
+    NotImplemented_nid_no_patch(__func__);
+    return netCall.Ret(0);
+}
+
+int APS5_VABI sceNpMatching2RegisterLobbyEventCallback(void) {
+    NetBridgeCall netCall("libSceNpMatching2", __func__);
+    NotImplemented_nid_no_patch(__func__);
+    return netCall.Ret(0);
+}
+
+int APS5_VABI sceNpMatching2RegisterLobbyMessageCallback(void) {
+    NetBridgeCall netCall("libSceNpMatching2", __func__);
+    NotImplemented_nid_no_patch(__func__);
+    return netCall.Ret(0);
+}
+
+int APS5_VABI sceNpMatching2RegisterManualUdpSignalingCallback(void) {
+    NetBridgeCall netCall("libSceNpMatching2", __func__);
+    NotImplemented_nid_no_patch(__func__);
+    return netCall.Ret(0);
+}
+
+int APS5_VABI sceNpMatching2SendLobbyChatMessage(void) {
+    NetBridgeCall netCall("libSceNpMatching2", __func__);
+    NotImplemented_nid_no_patch(__func__);
+    return netCall.Ret(0);
+}
+
+int APS5_VABI sceNpMatching2SetExtraInitParam(void) {
+    NetBridgeCall netCall("libSceNpMatching2", __func__);
+    NotImplemented_nid_no_patch(__func__);
+    return netCall.Ret(0);
+}
+
+int APS5_VABI sceNpMatching2SetLobbyMemberDataInternal(void) {
+    NetBridgeCall netCall("libSceNpMatching2", __func__);
+    NotImplemented_nid_no_patch(__func__);
+    return netCall.Ret(0);
+}
+
+int APS5_VABI sceNpMatching2SetRoomDataInternalExt(void) {
+    NetBridgeCall netCall("libSceNpMatching2", __func__);
+    NotImplemented_nid_no_patch(__func__);
+    return netCall.Ret(0);
+}
+
+int APS5_VABI sceNpMatching2SetSignalingOptParam(void) {
+    NetBridgeCall netCall("libSceNpMatching2", __func__);
+    NotImplemented_nid_no_patch(__func__);
+    return netCall.Ret(0);
+}
+
+int APS5_VABI sceNpMatching2SignalingAbortConnection(void) {
+    NetBridgeCall netCall("libSceNpMatching2", __func__);
+    NotImplemented_nid_no_patch(__func__);
+    return netCall.Ret(0);
+}
+
+int APS5_VABI sceNpMatching2SignalingCancelPeerNetInfo(void) {
+    NetBridgeCall netCall("libSceNpMatching2", __func__);
+    NotImplemented_nid_no_patch(__func__);
+    return netCall.Ret(0);
+}
+
+int APS5_VABI sceNpMatching2SignalingEnableManualUdpMode(void) {
+    NetBridgeCall netCall("libSceNpMatching2", __func__);
+    NotImplemented_nid_no_patch(__func__);
+    return netCall.Ret(0);
+}
+
+int APS5_VABI sceNpMatching2SignalingEstablishConnection(void) {
+    NetBridgeCall netCall("libSceNpMatching2", __func__);
+    NotImplemented_nid_no_patch(__func__);
+    return netCall.Ret(0);
+}
+
+int APS5_VABI sceNpMatching2SignalingGetConnectionInfoA(void) {
+    NetBridgeCall netCall("libSceNpMatching2", __func__);
+    NotImplemented_nid_no_patch(__func__);
+    return netCall.Ret(0);
+}
+
+int APS5_VABI sceNpMatching2SignalingGetConnectionStatus(void) {
+    NetBridgeCall netCall("libSceNpMatching2", __func__);
+    NotImplemented_nid_no_patch(__func__);
+    return netCall.Ret(0);
+}
+
+int APS5_VABI sceNpMatching2SignalingGetLocalNetInfo(void) {
+    NetBridgeCall netCall("libSceNpMatching2", __func__);
+    NotImplemented_nid_no_patch(__func__);
+    return netCall.Ret(0);
+}
+
+int APS5_VABI sceNpMatching2SignalingGetPeerNetInfo(void) {
+    NetBridgeCall netCall("libSceNpMatching2", __func__);
+    NotImplemented_nid_no_patch(__func__);
+    return netCall.Ret(0);
+}
+
+int APS5_VABI sceNpMatching2SignalingGetPeerNetInfoResult(void) {
+    NetBridgeCall netCall("libSceNpMatching2", __func__);
+    NotImplemented_nid_no_patch(__func__);
+    return netCall.Ret(0);
+}
+
+int APS5_VABI sceNpMatching2SignalingGetPingInfo(void) {
+    NetBridgeCall netCall("libSceNpMatching2", __func__);
+    NotImplemented_nid_no_patch(__func__);
+    return netCall.Ret(0);
+}
+
+int APS5_VABI sceNpMatching2SignalingGetPort(void) {
+    NetBridgeCall netCall("libSceNpMatching2", __func__);
+    NotImplemented_nid_no_patch(__func__);
+    return netCall.Ret(0);
+}
+
+int APS5_VABI sceNpMatching2SignalingSetPort(void) {
+    NetBridgeCall netCall("libSceNpMatching2", __func__);
+    NotImplemented_nid_no_patch(__func__);
+    return netCall.Ret(0);
+}
+
 }

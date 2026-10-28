@@ -10,11 +10,19 @@
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <optional>
 #include <string>
 #include "Recompiler.hpp"
 
 namespace AgcDriver::Graphics {
+
+class Buffer;
+
+struct TessellationCapture {
+    std::shared_ptr<Buffer> header;
+    std::shared_ptr<Buffer> items;
+};
 
 enum class ShaderPath {
     Vertex,
@@ -32,6 +40,8 @@ struct ShaderStages {
     std::optional<ShaderRecompiler::TessellationConfiguration> tessellation;
     float minTessellationLevel = 1.0f;
     float maxTessellationLevel = 64.0f;
+    std::uint32_t hullWaveSize = 64;
+    std::optional<ShaderRecompiler::MeshConfiguration> tessellationGeometry;
 };
 
 struct ColorTarget {
@@ -66,6 +76,7 @@ struct ColorTarget {
     std::uint32_t layers = 1;
     std::uint32_t exportIndex = 0;
     bool uintExport = false;
+    bool integerTarget = false;
     std::uint32_t pipeBankXor = 0;
     std::uint32_t samples = 1;
     std::uint32_t coverageSamples = 1;
@@ -122,6 +133,8 @@ struct State {
     bool hasColorTarget;
     bool rectList = false;
     bool quadList = false;
+    bool rasterizerDiscard = false;
+    std::shared_ptr<const TessellationCapture> tessellationCapture;
     bool dualSourceBlend = false;
     std::uint32_t reversedBlend = 0;
     VkExtent2D renderExtent;
@@ -144,6 +157,7 @@ struct State {
     } depthRemap;
     bool alphaToCoverage = false;
     bool ditheredAlphaToCoverage = false;
+    std::uint8_t ditheredAlphaSamples = 8;
     bool perSampleShading = false;
     bool mergedCoverage = false;
     bool truncatedCoverage = false;
@@ -183,6 +197,9 @@ State DecodeState(const QueueState& queue, bool vertexWorkgroup = false);
 void ApplyDepthRemap(const Context& context, State& state);
 void ApplyDepthBoundsEmulation(const Context& context, State& state, const ShaderRecompiler::ShaderPixelStageInfo& pixel);
 void NormalizeUnusedViewportDepth(State& state, const ShaderRecompiler::ShaderPixelStageInfo& pixel);
+std::uint32_t StageWaveSize(const ShaderStages& stages, ShaderRecompiler::ShaderStage stage);
+std::optional<ShaderRecompiler::MeshConfiguration> StageMeshConfiguration(const ShaderStages& stages, ShaderRecompiler::ShaderStage stage);
+std::uint32_t StagePushLimit(const ShaderStages& stages, std::uint32_t pushOffset, bool depthRemap);
 std::array<VkSampleLocationEXT, 32> SampleLocations(const State& state);
 std::array<std::uint8_t, 32> PixelSampleLocations(const State& state, const ShaderRecompiler::ShaderPixelStageInfo& pixel);
 VkExtent2D SampleLocationGrid(const State& state);

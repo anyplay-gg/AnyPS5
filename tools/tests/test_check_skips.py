@@ -54,6 +54,18 @@ class CheckSkipsTests(unittest.TestCase):
                     self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
                     self.assertIn("all expected", result.stdout)
 
+    def test_live_service_test_may_skip_without_a_net_service_and_nothing_else_may(self):
+        message = "bridge_e2e_game: ANYPS5_NET_ENDPOINT or ANYPS5_NET_TOKEN not set; skipping live service tests"
+        cases = (("bridge_e2e_game", message, 0), ("guest_probe", message, 1), ("bridge_e2e_game", "bridge_e2e_game: skipping", 1))
+        with tempfile.TemporaryDirectory() as directory:
+            junit = Path(directory) / "junit.xml"
+            for name, output, code in cases:
+                for job in ("linux", "windows"):
+                    with self.subTest(name=name, job=job, output=output):
+                        junit.write_text(f'<testsuite><testcase name="{name}"><skipped message="SKIP_RETURN_CODE=77"/><system-out>{output}</system-out></testcase></testsuite>', encoding="utf-8")
+                        result = subprocess.run([sys.executable, "-I", str(TOOL), str(junit), "--job", job], capture_output=True, text=True)
+                        self.assertEqual(result.returncode, code, result.stdout + result.stderr)
+
     def test_ctest_status_does_not_allow_missing_or_unexpected_reasons(self):
         reports = (
             '<skipped message="SKIP_RETURN_CODE=77"/>',
@@ -343,6 +355,40 @@ class CheckSkipsTests(unittest.TestCase):
         self.assertEqual(err.errors, "backslashreplace")
 
 
+
+
+class RequiredTestsTests(unittest.TestCase):
+    def test_required_reports_without_testcases_fail_in_both_jobs(self):
+        for xml in ('<testsuite/>', '<testsuites><testsuite tests="0"/></testsuites>'):
+            with tempfile.TemporaryDirectory() as directory:
+                junit = Path(directory) / "junit.xml"
+                junit.write_text(xml, encoding="utf-8")
+                for job in ("linux", "windows"):
+                    for options in ([], ["--list"]):
+                        with self.subTest(xml=xml, job=job, options=options):
+                            result = subprocess.run(
+                                [sys.executable, "-I", str(TOOL), str(junit), "--job", job, "--require-tests", *options],
+                                capture_output=True, text=True, timeout=5)
+                            self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+                            self.assertIn("no testcases", result.stderr)
+                            result = subprocess.run(
+                                [sys.executable, "-I", str(TOOL), str(junit), "--job", job, *options],
+                                capture_output=True, text=True, timeout=5)
+                            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_executed_tests_without_skips_pass_in_both_jobs(self):
+        for xml in ('<testsuite><testcase name="normal"/></testsuite>',
+                    '<testsuites><testsuite><testcase name="normal"/></testsuite></testsuites>'):
+            with tempfile.TemporaryDirectory() as directory:
+                junit = Path(directory) / "junit.xml"
+                junit.write_text(xml, encoding="utf-8")
+                for job in ("linux", "windows"):
+                    with self.subTest(xml=xml, job=job):
+                        result = subprocess.run(
+                            [sys.executable, "-I", str(TOOL), str(junit), "--job", job, "--require-tests"],
+                            capture_output=True, text=True, timeout=5)
+                        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                        self.assertIn("0 test(s) skipped, all expected", result.stdout)
 
 
 class SkipReportTests(unittest.TestCase):

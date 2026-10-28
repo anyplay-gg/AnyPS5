@@ -15,10 +15,17 @@ CTEST_SKIP_STATUS = re.compile(r"SKIP_RETURN_CODE=\d+|SKIP_REGULAR_EXPRESSION_MA
 
 WINDOWS_PREFIX = "agc"
 
+LIVE_SERVICE_TEST = "bridge_e2e_game"
+LIVE_SERVICE = re.compile(r"ANYPS5_NET_ENDPOINT or ANYPS5_NET_TOKEN not set")
+
 
 def device_limitations(output, patterns):
     reasons = [match.group(0) for line in output.splitlines() if (match := re.search(r"skipped,.*", line, re.IGNORECASE))]
     return bool(reasons) and all(any(pattern.search(reason) for pattern in patterns) for reason in reasons)
+
+
+def needs_live_service(name, output):
+    return name == LIVE_SERVICE_TEST and bool(LIVE_SERVICE.search(output))
 
 
 def high_refresh_limitation(output):
@@ -32,11 +39,13 @@ def high_refresh_limitation(output):
     return bool(reasons) and all(HIGH_REFRESH_LIMITATION.fullmatch(reason) for reason in reasons)
 
 
-def skips(path):
+def skips(path, require_tests=False):
     root = ET.parse(path).getroot()
     if root.tag not in ("testsuite", "testsuites"):
         raise ValueError(f"{path}: expected a JUnit testsuite or testsuites root, got {root.tag!r}")
+    found = False
     for case in root.iter("testcase"):
+        found = True
         if case.get("status") == "disabled":
             raise ValueError(f"{path}: testcase {case.get('name')!r} is disabled and was not run")
         skipped = case.find("skipped")
@@ -49,6 +58,8 @@ def skips(path):
                   if reason.strip() and not CTEST_SKIP_STATUS.fullmatch(reason.strip())]
         output += [case.findtext(channel) or "" for channel in ("system-out", "system-err")]
         yield name, "\n".join(output)
+    if require_tests and not found:
+        raise ValueError(f"{path}: report contains no testcases")
 
 
 def main(argv=None):
@@ -59,9 +70,10 @@ def main(argv=None):
     parser.add_argument("junit", type=Path, help="the file written by ctest --output-junit")
     parser.add_argument("--job", choices=("linux", "windows"), default="linux")
     parser.add_argument("--list", action="store_true", help="print the skipped tests and why the file says they skipped")
+    parser.add_argument("--require-tests", action="store_true", help="fail if the report contains no testcases")
     args = parser.parse_args(argv)
     try:
-        found = sorted(skips(args.junit))
+        found = sorted(skips(args.junit, require_tests=args.require_tests))
     except (OSError, ET.ParseError, ValueError) as error:
         parser.error(str(error))
     if args.list:
@@ -71,11 +83,11 @@ def main(argv=None):
             print(f"{name}: {reason}")
         return 0
     if args.job == "windows":
-        unexpected = [name for name, output in found if not name.startswith(WINDOWS_PREFIX) and not device_limitations(output, (NO_DISPLAY, NO_VULKAN_DEVICE)) and not high_refresh_limitation(output)]
+        unexpected = [name for name, output in found if not name.startswith(WINDOWS_PREFIX) and not needs_live_service(name, output) and not device_limitations(output, (NO_DISPLAY, NO_VULKAN_DEVICE)) and not high_refresh_limitation(output)]
         expected = f"any {WINDOWS_PREFIX}* test, which the runner has no Vulkan driver for, or a test that reports no display or Vulkan device or a display without a 120 Hz mode"
     else:
-        unexpected = [name for name, output in found if not device_limitations(output, (DEVICE_LIMITATION,)) and not high_refresh_limitation(output)]
-        expected = "any test that reports the device limitation it needs, such as narrow subgroups, a missing extension, no display for a Vulkan window or a display without a 120 Hz mode"
+        unexpected = [name for name, output in found if not needs_live_service(name, output) and not device_limitations(output, (DEVICE_LIMITATION,)) and not high_refresh_limitation(output)]
+        expected = "any test that reports the device limitation it needs, such as narrow subgroups, a missing extension, bridge_e2e_game without a live net service, no display for a Vulkan window or a display without a 120 Hz mode"
     for name in unexpected:
         print(f"error: {name} skipped")
     if unexpected:
