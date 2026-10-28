@@ -143,6 +143,86 @@ int main() {
     Require(sceNpCheckPlus(request, plusParameter, plusResult) == RequestNotFound, "plus on a deleted request");
     Require(sceNpPollAsync(request, &polled) == RequestNotFound, "a deleted request is not found");
 
+    const int identityRequest = sceNpCreateRequest();
+    char country[4];
+    std::memset(country, 0x5A, sizeof(country));
+    Require(sceNpGetAccountCountryA(USER_SERVICE_INITIAL_USER_ID, country) == 0 && std::string(country) == "us" && country[3] == 0x5A, "country of the signed in user");
+    std::memset(country, 0x5A, sizeof(country));
+    Require(sceNpManagerIntGetAccountCountryA(USER_SERVICE_INITIAL_USER_ID, country) == 0 && std::string(country) == "us", "internal country of the signed in user");
+    std::memset(country, 0x5A, sizeof(country));
+    Require(sceNpGetAccountCountry(&onlineId, country) == 0 && std::string(country) == "us", "country by online id");
+    NpOnlineId strangerId;
+    std::memset(&strangerId, 0, sizeof(strangerId));
+    std::memcpy(strangerId.data, "Somebody_Else", 13);
+    Require(sceNpGetAccountCountry(&strangerId, country) == static_cast<int>(0x80550007u), "no country for an online id that is not the signed in player");
+    Require(sceNpGetAccountCountryA(OtherUser, country) == SignedOut, "no country for another user");
+    Require(sceNpGetAccountCountryA(USER_SERVICE_INITIAL_USER_ID, nullptr) == InvalidArgument, "null country");
+
+    std::uint8_t accountAge = 0;
+    Require(sceNpGetAccountAge(identityRequest, USER_SERVICE_INITIAL_USER_ID, &accountAge) == 0 && accountAge == 18, "account age");
+    Require(sceNpPollAsync(identityRequest, &polled) == 0 && polled == 0, "poll reports the age");
+    accountAge = 0;
+    Require(sceNpManagerIntGetAccountAge(identityRequest, USER_SERVICE_INITIAL_USER_ID, &accountAge) == 0 && accountAge == 18, "internal account age");
+    Require(sceNpGetAccountAge(identityRequest, OtherUser, &accountAge) == SignedOut, "no age for another user");
+    Require(sceNpGetAccountAge(0, USER_SERVICE_INITIAL_USER_ID, &accountAge) == InvalidArgument, "age needs a request");
+    Require(sceNpGetAccountAge(request, USER_SERVICE_INITIAL_USER_ID, &accountAge) == RequestNotFound, "age on a deleted request");
+    Require(sceNpGetAccountAge(identityRequest, USER_SERVICE_INITIAL_USER_ID, nullptr) == InvalidArgument, "null age");
+
+    char language[16];
+    std::memset(language, 0x5A, sizeof(language));
+    Require(sceNpGetAccountLanguageA(identityRequest, USER_SERVICE_INITIAL_USER_ID, language) == 0 && std::string(language) == "en" && language[5] == 0 && language[6] == 0x5A, "language of the signed in user");
+    std::memset(language, 0x5A, sizeof(language));
+    Require(sceNpGetAccountLanguage2(identityRequest, USER_SERVICE_INITIAL_USER_ID, language) == 0 && std::string(language) == "en", "language 2");
+    FakeNet::SetEnvironment("ANYPS5_LANGUAGE", "4");
+    Require(sceNpGetAccountLanguageA(identityRequest, USER_SERVICE_INITIAL_USER_ID, language) == 0 && std::string(language) == "de", "language follows the console language");
+    FakeNet::SetEnvironment("ANYPS5_LANGUAGE", "");
+    Require(sceNpGetAccountLanguage(identityRequest, &onlineId, language) == 0 && std::string(language) == "en", "language by online id");
+    Require(sceNpGetAccountLanguage(identityRequest, &strangerId, language) == static_cast<int>(0x80550007u), "no language for a stranger");
+    Require(sceNpGetAccountLanguageA(identityRequest, OtherUser, language) == SignedOut, "no language for another user");
+    Require(sceNpGetAccountLanguageA(request, USER_SERVICE_INITIAL_USER_ID, language) == RequestNotFound, "language on a deleted request");
+
+    std::int8_t parentalAge = 0;
+    std::uint8_t parentalInfo[4];
+    std::memset(parentalInfo, 0x5A, sizeof(parentalInfo));
+    Require(sceNpGetParentalControlInfoA(identityRequest, USER_SERVICE_INITIAL_USER_ID, &parentalAge, parentalInfo) == 0 && parentalAge == 18, "parental control answers for the signed in user");
+    Require(parentalInfo[0] == 0 && parentalInfo[1] == 0 && parentalInfo[2] == 0 && parentalInfo[3] == 0x5A, "no content, chat or user generated content restriction");
+    Require(sceNpGetParentalControlInfo(identityRequest, &onlineId, &parentalAge, parentalInfo) == 0, "parental control by online id");
+    Require(sceNpGetParentalControlInfo(identityRequest, &strangerId, &parentalAge, parentalInfo) == static_cast<int>(0x80550007u), "no parental control for a stranger");
+    Require(sceNpGetParentalControlInfoA(identityRequest, OtherUser, &parentalAge, parentalInfo) == SignedOut, "no parental control for another user");
+    Require(sceNpGetParentalControlInfoA(identityRequest, USER_SERVICE_INITIAL_USER_ID, nullptr, parentalInfo) == InvalidArgument, "null parental age");
+
+    Require(sceNpCheckNpAvailabilityA(identityRequest, USER_SERVICE_INITIAL_USER_ID) == 0, "network is available");
+    std::uint8_t available = 0;
+    Require(sceNpCheckNpAvailability(identityRequest, &onlineId, &available) == 0 && available == 1, "network is available by online id");
+    Require(sceNpCheckNpAvailability(identityRequest, &strangerId, &available) == static_cast<int>(0x80550007u) && available == 0, "network is not available for a stranger");
+    Require(sceNpCheckNpAvailabilityA(identityRequest, OtherUser) == SignedOut, "network is not available for another user");
+    Require(sceNpCheckNpReachability(identityRequest, USER_SERVICE_INITIAL_USER_ID) == 0, "reachability check");
+    Require(sceNpCheckNpReachability(identityRequest, OtherUser) == SignedOut, "reachability check for another user");
+    Require(sceNpSetGamePresenceOnline(identityRequest, &onlineId, 1) == 0, "presence set");
+    Require(sceNpSetGamePresenceOnline(identityRequest, &strangerId, 1) == SignedOut, "presence of a stranger");
+
+    std::uint32_t presence = 7;
+    Require(sceNpGetGamePresenceStatusA(USER_SERVICE_INITIAL_USER_ID, &presence) == 0 && presence == 1, "presence online");
+    Require(sceNpGetGamePresenceStatusA(OtherUser, &presence) == 0 && presence == 0, "presence of another user");
+    Require(sceNpGetGamePresenceStatus(&onlineId, &presence) == 0 && presence == 1, "presence online by online id");
+    Require(sceNpGetGamePresenceStatus(&strangerId, &presence) == 0 && presence == 0, "presence of a stranger");
+
+    int foundUser = 0;
+    Require(sceNpGetUserIdByOnlineId(&onlineId, &foundUser) == 0 && foundUser == USER_SERVICE_INITIAL_USER_ID, "user by online id");
+    foundUser = 0;
+    Require(sceNpManagerIntGetUserIdByOnlineId(&onlineId, &foundUser) == 0 && foundUser == USER_SERVICE_INITIAL_USER_ID, "internal user by online id");
+    Require(sceNpGetUserIdByOnlineId(&strangerId, &foundUser) == SignedOut, "no user for a stranger");
+    foundUser = 0;
+    Require(sceNpGetUserIdByAccountId(AccountId, &foundUser) == 0 && foundUser == USER_SERVICE_INITIAL_USER_ID, "user by account id");
+    Require(sceNpGetUserIdByAccountId(AccountId + 1, &foundUser) == SignedOut, "no user for another account id");
+    std::uint64_t foundAccount = 0;
+    Require(sceNpGetAccountId(&onlineId, &foundAccount) == 0 && foundAccount == AccountId, "account id by online id");
+    Require(sceNpGetAccountId(&strangerId, &foundAccount) == SignedOut, "no account id for a stranger");
+    bool plusMember = false;
+    Require(sceNpIsPlusMember(USER_SERVICE_INITIAL_USER_ID, &plusMember) == 0 && plusMember, "plus member while signed in");
+    Require(sceNpIsPlusMember(OtherUser, &plusMember) == 0 && !plusMember, "another user is no plus member");
+    Require(sceNpDeleteRequest(identityRequest) == 0, "delete identity request");
+
     int dummyFeature = 0;
     Require(sceNpNotifyPlusFeature(&dummyFeature) == 0, "plus feature accepted");
     Require(sceNpNotifyPlusFeature(nullptr) == InvalidArgument, "plus feature needs a parameter");
@@ -165,6 +245,16 @@ int main() {
     Require(sceNpCheckPlus(second, plusParameter, plusResult) == SignedOut && plusResult[0] == 0x5A, "plus refused while signed out");
     Require(sceNpCheckPremium(second, &premiumParameter, &premiumResult) == SignedOut, "premium refused while signed out");
     Require(sceNpPollAsync(second, &polled) == 0 && polled == SignedOut, "poll while signed out");
+    std::memset(country, 0x5A, sizeof(country));
+    Require(sceNpGetAccountCountryA(USER_SERVICE_INITIAL_USER_ID, country) == SignedOut && country[0] == 0x5A, "no country while signed out");
+    Require(sceNpGetAccountCountry(&onlineId, country) == static_cast<int>(0x80550007u), "no country by online id while signed out");
+    Require(sceNpGetAccountAge(second, USER_SERVICE_INITIAL_USER_ID, &accountAge) == SignedOut, "no age while signed out");
+    Require(sceNpGetAccountLanguageA(second, USER_SERVICE_INITIAL_USER_ID, language) == SignedOut, "no language while signed out");
+    Require(sceNpGetParentalControlInfoA(second, USER_SERVICE_INITIAL_USER_ID, &parentalAge, parentalInfo) == SignedOut, "no parental control while signed out");
+    Require(sceNpCheckNpAvailabilityA(second, USER_SERVICE_INITIAL_USER_ID) == SignedOut && sceNpCheckNpReachability(second, USER_SERVICE_INITIAL_USER_ID) == SignedOut, "network unavailable while signed out");
+    Require(sceNpGetGamePresenceStatusA(USER_SERVICE_INITIAL_USER_ID, &presence) == 0 && presence == 0, "offline presence while signed out");
+    Require(sceNpGetUserIdByOnlineId(&onlineId, &foundUser) == SignedOut && sceNpGetUserIdByAccountId(AccountId, &foundUser) == SignedOut, "no user lookup while signed out");
+    Require(sceNpIsPlusMember(USER_SERVICE_INITIAL_USER_ID, &plusMember) == 0 && !plusMember, "no plus member while signed out");
 
     service.SetState(true, AccountId, "Sixteen_Chars_16", 1, address);
     Require(Service::WaitUntil([] { return SignedInNow(); }, 5000), "signed in again");

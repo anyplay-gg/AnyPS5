@@ -5,6 +5,7 @@
 #include "prx/libc/include/General.hpp"
 #include "prx/libSceUserService/UserService.hpp"
 #include "prx/libSceNetCtl/include/NetBridge.hpp"
+#include "prx/libSceSystemService/SystemService.hpp"
 #include <array>
 #include <cstring>
 #include <atomic>
@@ -92,6 +93,54 @@ int GrantOnline(const char* fn, int reqId, bool argumentsValid, std::uint8_t* re
         in.Int("req_id", reqId);
         if (ret == 0) out.Bool("authorized", true);
     });
+    return ret;
+}
+
+constexpr char NP_ACCOUNT_COUNTRY[3] = {'u', 's', '\0'};
+constexpr std::int8_t NP_ACCOUNT_AGE = 18;
+constexpr uint32_t NP_GAME_PRESENCE_STATUS_ONLINE = 1;
+constexpr std::size_t NP_LANGUAGE_CODE_SIZE = 6;
+constexpr std::size_t NP_PARENTAL_CONTROL_INFO_SIZE = 3;
+
+bool BridgeHandleIs(const NpOnlineId* onlineId, NetBridgeStateView& view) {
+    if (onlineId == nullptr || NetBridgeEnabled_nid_no_patch() == 0) return false;
+    NetBridgeState_nid_no_patch(&view);
+    return view.signedIn != 0 && view.handle[0] != '\0' && std::strncmp(onlineId->data, view.handle, sizeof(view.handle)) == 0;
+}
+
+void FillLanguageCode(void* language) {
+    static constexpr const char* codes[] = {"ja", "en", "fr", "es", "de", "it", "nl", "pt", "ru", "ko", "zh", "zh", "fi", "sv", "da", "no", "pl", "pt", "en", "tr", "es", "ar", "fr", "cs", "hu", "el", "ro", "th", "vi", "id", "uk"};
+    const int index = SystemServiceConsoleLanguage("sceNpGetAccountLanguage");
+    std::memset(language, 0, NP_LANGUAGE_CODE_SIZE);
+    std::memcpy(language, codes[index], 2);
+}
+
+int CompleteRequest(int reqId) {
+    if (reqId == 0) return SCE_NP_ERROR_INVALID_ARGUMENT;
+    std::lock_guard lock(requestMutex);
+    if (!liveRequests.count(reqId)) return SCE_NP_ERROR_REQUEST_NOT_FOUND;
+    requestResults[reqId] = 0;
+    return 0;
+}
+
+int AnswerAge(int reqId, std::uint8_t* age) {
+    const int ret = CompleteRequest(reqId);
+    if (ret == 0) *age = static_cast<std::uint8_t>(NP_ACCOUNT_AGE);
+    return ret;
+}
+
+int AnswerLanguage(int reqId, void* language) {
+    const int ret = CompleteRequest(reqId);
+    if (ret == 0) FillLanguageCode(language);
+    return ret;
+}
+
+int AnswerParentalControl(int reqId, std::int8_t* age, void* info) {
+    const int ret = CompleteRequest(reqId);
+    if (ret == 0) {
+        *age = NP_ACCOUNT_AGE;
+        std::memset(info, 0, NP_PARENTAL_CONTROL_INFO_SIZE);
+    }
     return ret;
 }
 
@@ -383,6 +432,8 @@ int APS5_VABI sceNpAsmTerminate(void) {
 int APS5_VABI sceNpCheckNpAvailabilityA(int reqId, int userId) {
     NetBridgeCall netCall("libSceNpManager", __func__, [&](NetBridgeJson& netIn) { netIn.Int("req_id", reqId); netIn.Int("user_id", userId); });
     if (userId == USER_SERVICE_USER_ID_INVALID) return netCall.Ret(SCE_NP_ERROR_INVALID_ARGUMENT);
+    NetBridgeStateView view{};
+    if (BridgeSignedIn(userId, view)) return netCall.Ret(CompleteRequest(reqId));
     return netCall.Ret(SignedOutRequest(reqId));
 }
 int APS5_VABI sceNpGetAccountDateOfBirthA(int userId, void* dateOfBirth) {
@@ -393,23 +444,29 @@ int APS5_VABI sceNpGetAccountDateOfBirthA(int userId, void* dateOfBirth) {
 int APS5_VABI sceNpGetAccountLanguageA(int reqId, int userId, void* language) {
     NetBridgeCall netCall("libSceNpManager", __func__, [&](NetBridgeJson& netIn) { netIn.Int("req_id", reqId); netIn.Int("user_id", userId); });
     if (!language || userId == USER_SERVICE_USER_ID_INVALID) return netCall.Ret(SCE_NP_ERROR_INVALID_ARGUMENT);
+    NetBridgeStateView view{};
+    if (BridgeSignedIn(userId, view)) return netCall.Ret(AnswerLanguage(reqId, language));
     return netCall.Ret(SignedOutRequest(reqId));
 }
 int APS5_VABI sceNpGetGamePresenceStatus(const NpOnlineId* onlineId, uint32_t* status) {
     NetBridgeCall netCall("libSceNpManager", __func__);
     if (!onlineId || !status) return netCall.Ret(SCE_NP_ERROR_INVALID_ARGUMENT);
-    *status = NP_GAME_PRESENCE_STATUS_OFFLINE;
+    NetBridgeStateView view{};
+    *status = BridgeHandleIs(onlineId, view) ? NP_GAME_PRESENCE_STATUS_ONLINE : NP_GAME_PRESENCE_STATUS_OFFLINE;
     return netCall.Ret(0);
 }
 int APS5_VABI sceNpGetGamePresenceStatusA(int userId, uint32_t* status) {
     NetBridgeCall netCall("libSceNpManager", __func__, [&](NetBridgeJson& netIn) { netIn.Int("user_id", userId); });
     if (!status || userId == USER_SERVICE_USER_ID_INVALID) return netCall.Ret(SCE_NP_ERROR_INVALID_ARGUMENT);
-    *status = NP_GAME_PRESENCE_STATUS_OFFLINE;
+    NetBridgeStateView view{};
+    *status = BridgeSignedIn(userId, view) ? NP_GAME_PRESENCE_STATUS_ONLINE : NP_GAME_PRESENCE_STATUS_OFFLINE;
     return netCall.Ret(0);
 }
 int APS5_VABI sceNpGetParentalControlInfoA(int reqId, int userId, int8_t* age, void* info) {
     NetBridgeCall netCall("libSceNpManager", __func__, [&](NetBridgeJson& netIn) { netIn.Int("req_id", reqId); netIn.Int("user_id", userId); });
     if (!age || !info || userId == USER_SERVICE_USER_ID_INVALID) return netCall.Ret(SCE_NP_ERROR_INVALID_ARGUMENT);
+    NetBridgeStateView view{};
+    if (BridgeSignedIn(userId, view)) return netCall.Ret(AnswerParentalControl(reqId, age, info));
     return netCall.Ret(SignedOutRequest(reqId));
 }
 int APS5_VABI sceNpIdMapperAbortRequest(int reqId) {
@@ -512,10 +569,11 @@ int APS5_VABI sceNpIntRegisterGamePresenceCallback(void) {
     NotImplemented_nid_no_patch(__func__);
     return netCall.Ret(0);
 }
-int APS5_VABI sceNpIsPlusMember(int, bool* isMember) {
+int APS5_VABI sceNpIsPlusMember(int userId, bool* isMember) {
     NetBridgeCall netCall("libSceNpManager", __func__);
     if (!isMember) return netCall.Ret(SCE_NP_ERROR_INVALID_ARGUMENT);
-    *isMember = false;
+    NetBridgeStateView view{};
+    *isMember = BridgeSignedIn(userId, view);
     return netCall.Ret(0);
 }
 int APS5_VABI sceNpManagerIntAbortRequest(int reqId) {
@@ -644,8 +702,9 @@ int APS5_VABI sceNpManagerIntGetAccessTokenViaImplicitFlow(void) {
 }
 int APS5_VABI sceNpManagerIntGetAccountAge(int reqId, int userId, std::uint8_t* age) {
     NetBridgeCall netCall("libSceNpManager", __func__);
-    (void)reqId;
     if (userId == USER_SERVICE_USER_ID_INVALID || !age) return netCall.Ret(SCE_NP_ERROR_INVALID_ARGUMENT);
+    NetBridgeStateView view{};
+    if (BridgeSignedIn(userId, view)) return netCall.Ret(AnswerAge(reqId, age));
     return netCall.Ret(SCE_NP_ERROR_SIGNED_OUT);
 }
 int APS5_VABI sceNpManagerIntGetAccountCountry(void) {
@@ -656,6 +715,11 @@ int APS5_VABI sceNpManagerIntGetAccountCountry(void) {
 int APS5_VABI sceNpManagerIntGetAccountCountryA(int userId, void* countryCode) {
     NetBridgeCall netCall("libSceNpManager", __func__);
     if (userId == USER_SERVICE_USER_ID_INVALID || !countryCode) return netCall.Ret(SCE_NP_ERROR_INVALID_ARGUMENT);
+    NetBridgeStateView view{};
+    if (BridgeSignedIn(userId, view)) {
+        std::memcpy(countryCode, NP_ACCOUNT_COUNTRY, sizeof(NP_ACCOUNT_COUNTRY));
+        return netCall.Ret(0);
+    }
     return netCall.Ret(SCE_NP_ERROR_SIGNED_OUT);
 }
 int APS5_VABI sceNpManagerIntGetAccountCountrySdk(void) {
@@ -685,8 +749,9 @@ int APS5_VABI sceNpManagerIntGetAccountLanguage(void) {
 }
 int APS5_VABI sceNpManagerIntGetAccountLanguageA(int reqId, int userId, void* language) {
     NetBridgeCall netCall("libSceNpManager", __func__);
-    (void)reqId;
     if (userId == USER_SERVICE_USER_ID_INVALID || !language) return netCall.Ret(SCE_NP_ERROR_INVALID_ARGUMENT);
+    NetBridgeStateView view{};
+    if (BridgeSignedIn(userId, view)) return netCall.Ret(AnswerLanguage(reqId, language));
     return netCall.Ret(SCE_NP_ERROR_SIGNED_OUT);
 }
 int APS5_VABI sceNpManagerIntGetAccountNpEnv(void) {
@@ -856,6 +921,11 @@ int APS5_VABI sceNpManagerIntGetUserIdByNpId(const NpId* npId, int* userId) {
 int APS5_VABI sceNpManagerIntGetUserIdByOnlineId(const NpOnlineId* onlineId, int* userId) {
     NetBridgeCall netCall("libSceNpManager", __func__);
     if (!onlineId || !userId) return netCall.Ret(SCE_NP_ERROR_INVALID_ARGUMENT);
+    NetBridgeStateView view{};
+    if (BridgeHandleIs(onlineId, view)) {
+        *userId = USER_SERVICE_INITIAL_USER_ID;
+        return netCall.Ret(0);
+    }
     return netCall.Ret(SCE_NP_ERROR_SIGNED_OUT);
 }
 int APS5_VABI sceNpManagerIntGetUserIdByOnlineIdSdk(void) {
@@ -994,14 +1064,20 @@ int APS5_VABI sceNpCheckCallback(void) {
 int APS5_VABI sceNpCheckNpAvailability(std::int32_t requestId, const NpOnlineId* onlineId, std::uint8_t* available) {
  NetBridgeCall netCall("libSceNpManager", __func__, [&](NetBridgeJson& netIn) { netIn.Int("request_id", requestId); });
  if (requestId == 0 || onlineId == nullptr) return netCall.Ret(SCE_NP_ERROR_INVALID_ARGUMENT);
+ NetBridgeStateView view{};
+ if (BridgeHandleIs(onlineId, view)) {
+  const int ret = CompleteRequest(requestId);
+  if (ret == 0 && available != nullptr) *available = 1;
+  return netCall.Ret(ret);
+ }
  if (available != nullptr) *available = 0;
  return netCall.Ret(SCE_NP_ERROR_USER_NOT_FOUND);
 }
 
 int APS5_VABI sceNpCheckNpReachability(int req_id, int user_id) {
  NetBridgeCall netCall("libSceNpManager", __func__, [&](NetBridgeJson& netIn) { netIn.Int("req_id", req_id); netIn.Int("user_id", user_id); });
- (void)req_id;
- (void)user_id;
+ NetBridgeStateView view{};
+ if (BridgeSignedIn(user_id, view)) return netCall.Ret(CompleteRequest(req_id));
  return netCall.Ret(SCE_NP_ERROR_SIGNED_OUT);
 }
 
@@ -1038,15 +1114,20 @@ int APS5_VABI sceNpDeleteRequest(int req_id) {
 
 int APS5_VABI sceNpGetAccountAge(int req_id, int user_id, uint8_t* age) {
  NetBridgeCall netCall("libSceNpManager", __func__, [&](NetBridgeJson& netIn) { netIn.Int("req_id", req_id); netIn.Int("user_id", user_id); });
- (void)req_id;
- (void)user_id;
  if (!age) return netCall.Ret(SCE_NP_ERROR_INVALID_ARGUMENT);
+ NetBridgeStateView view{};
+ if (BridgeSignedIn(user_id, view)) return netCall.Ret(AnswerAge(req_id, age));
  return netCall.Ret(SCE_NP_ERROR_SIGNED_OUT);
 }
 
 int APS5_VABI sceNpGetAccountCountry(const NpOnlineId* online_id, void* country_code) {
     NetBridgeCall netCall("libSceNpManager", __func__);
     if (!online_id || !country_code) return netCall.Ret(SCE_NP_ERROR_INVALID_ARGUMENT);
+    NetBridgeStateView view{};
+    if (BridgeHandleIs(online_id, view)) {
+        std::memcpy(country_code, NP_ACCOUNT_COUNTRY, sizeof(NP_ACCOUNT_COUNTRY));
+        return netCall.Ret(0);
+    }
     return netCall.Ret(SCE_NP_ERROR_USER_NOT_FOUND);
 }
 
@@ -1058,21 +1139,28 @@ int APS5_VABI sceNpGetAccountDateOfBirth(const NpOnlineId* online_id, void* date
 
 int APS5_VABI sceNpGetAccountLanguage(int req_id, const NpOnlineId* online_id, void* language) {
     NetBridgeCall netCall("libSceNpManager", __func__, [&](NetBridgeJson& netIn) { netIn.Int("req_id", req_id); });
-    (void)req_id;
     if (!online_id || !language) return netCall.Ret(SCE_NP_ERROR_INVALID_ARGUMENT);
+    NetBridgeStateView view{};
+    if (BridgeHandleIs(online_id, view)) return netCall.Ret(AnswerLanguage(req_id, language));
     return netCall.Ret(SCE_NP_ERROR_USER_NOT_FOUND);
 }
 
 int APS5_VABI sceNpGetParentalControlInfo(int req_id, const NpOnlineId* online_id, int8_t* age, void* info) {
     NetBridgeCall netCall("libSceNpManager", __func__, [&](NetBridgeJson& netIn) { netIn.Int("req_id", req_id); });
-    (void)req_id;
     if (!online_id || !age || !info) return netCall.Ret(SCE_NP_ERROR_INVALID_ARGUMENT);
+    NetBridgeStateView view{};
+    if (BridgeHandleIs(online_id, view)) return netCall.Ret(AnswerParentalControl(req_id, age, info));
     return netCall.Ret(SCE_NP_ERROR_USER_NOT_FOUND);
 }
 
 int APS5_VABI sceNpGetUserIdByOnlineId(const NpOnlineId* online_id, int* user_id) {
     NetBridgeCall netCall("libSceNpManager", __func__);
     if (!online_id || !user_id) return netCall.Ret(SCE_NP_ERROR_INVALID_ARGUMENT);
+    NetBridgeStateView view{};
+    if (BridgeHandleIs(online_id, view)) {
+        *user_id = USER_SERVICE_INITIAL_USER_ID;
+        return netCall.Ret(0);
+    }
     return netCall.Ret(SCE_NP_ERROR_SIGNED_OUT);
 }
 
@@ -1100,6 +1188,11 @@ int APS5_VABI sceNpNotifyPlusFeature(const void* param) {
 int APS5_VABI sceNpGetAccountId(const NpOnlineId* online_id, uint64_t* account_id) {
     NetBridgeCall netCall("libSceNpManager", __func__);
     if (!online_id || !account_id) return netCall.Ret(SCE_NP_ERROR_INVALID_ARGUMENT);
+    NetBridgeStateView view{};
+    if (BridgeHandleIs(online_id, view)) {
+        *account_id = view.accountId;
+        return netCall.Ret(0);
+    }
     return netCall.Ret(SCE_NP_ERROR_SIGNED_OUT);
 }
 
@@ -1111,13 +1204,19 @@ int APS5_VABI sceNpSetGamePresenceOnline(int req_id, const NpOnlineId* online_id
         std::lock_guard lock(requestMutex);
         if (!liveRequests.count(req_id)) return netCall.Ret(SCE_NP_ERROR_REQUEST_NOT_FOUND);
     }
+    NetBridgeStateView view{};
+    if (BridgeHandleIs(online_id, view)) return netCall.Ret(CompleteRequest(req_id));
     return netCall.Ret(SCE_NP_ERROR_SIGNED_OUT);
 }
 
 int APS5_VABI sceNpGetAccountCountryA(int user_id, void* country_code) {
     NetBridgeCall netCall("libSceNpManager", __func__, [&](NetBridgeJson& netIn) { netIn.Int("user_id", user_id); });
-    (void)user_id;
     if (!country_code) return netCall.Ret(SCE_NP_ERROR_INVALID_ARGUMENT);
+    NetBridgeStateView view{};
+    if (BridgeSignedIn(user_id, view)) {
+        std::memcpy(country_code, NP_ACCOUNT_COUNTRY, sizeof(NP_ACCOUNT_COUNTRY));
+        return netCall.Ret(0);
+    }
     return netCall.Ret(SCE_NP_ERROR_SIGNED_OUT);
 }
 
@@ -1324,9 +1423,8 @@ int APS5_VABI sceNpUnregisterStateCallback(void) {
 
 int APS5_VABI sceNpGetAccountLanguage2(int req_id, int user_id, void* language) {
     NetBridgeCall netCall("libSceNpManager", __func__, [&](NetBridgeJson& netIn) { netIn.Int("req_id", req_id); netIn.Int("user_id", user_id); });
-    (void)req_id;
-    (void)user_id;
-    (void)language;
+    NetBridgeStateView view{};
+    if (language != nullptr && BridgeSignedIn(user_id, view)) return netCall.Ret(AnswerLanguage(req_id, language));
     return netCall.Ret(SCE_NP_ERROR_SIGNED_OUT);
 }
 
@@ -1374,6 +1472,14 @@ int APS5_VABI sceNpUnregisterPlusEventCallback(void) {
 int APS5_VABI sceNpGetUserIdByAccountId(uint64_t account_id, int* user_id) {
     NetBridgeCall netCall("libSceNpManager", __func__, [&](NetBridgeJson& netIn) { netIn.Uint("account_id", account_id); });
     if (account_id == 0 || !user_id) return netCall.Ret(SCE_NP_ERROR_INVALID_ARGUMENT);
+    NetBridgeStateView view{};
+    if (NetBridgeEnabled_nid_no_patch() != 0) {
+        NetBridgeState_nid_no_patch(&view);
+        if (view.signedIn != 0 && view.accountId == account_id) {
+            *user_id = USER_SERVICE_INITIAL_USER_ID;
+            return netCall.Ret(0);
+        }
+    }
     return netCall.Ret(SCE_NP_ERROR_SIGNED_OUT);
 }
 
